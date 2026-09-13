@@ -222,13 +222,13 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def send(self, status, data, mime="application/json"):
+    def send(self, status, data, mime="application/json", cache="no-store"):
         body = (
             data if isinstance(data, bytes) else json.dumps(data, default=str).encode()
         )
         self.send_response(status)
         self.send_header("Content-Type", mime)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -255,23 +255,28 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 refresh_login()
                 return self.send(200, dict(login))
-        if path == "/":
-            return self.send(
-                200,
-                (common.ROOT / "web" / "dashboard.html").read_bytes(),
-                "text/html; charset=utf-8",
-            )
-        if path == "/dashboard.css":
-            return self.send(
-                200,
-                (common.ROOT / "web" / "dashboard.css").read_bytes(),
-                "text/css; charset=utf-8",
-            )
-        if path == "/dashboard.js":
-            return self.send(
-                200,
-                (common.ROOT / "web" / "dashboard.js").read_bytes(),
+        static = {
+            "/": ("dashboard.html", "text/html; charset=utf-8"),
+            "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
+            "/dashboard.js": ("dashboard.js", "text/javascript; charset=utf-8"),
+            "/manifest.webmanifest": (
+                "manifest.webmanifest",
+                "application/manifest+json",
+            ),
+            "/service-worker.js": (
+                "service-worker.js",
                 "text/javascript; charset=utf-8",
+            ),
+            "/icon-192.png": ("icon-192.png", "image/png"),
+            "/icon-512.png": ("icon-512.png", "image/png"),
+        }
+        if path in static:
+            filename, mime = static[path]
+            return self.send(
+                200,
+                (common.ROOT / "web" / filename).read_bytes(),
+                mime,
+                "no-cache",
             )
         if path == "/api/status":
             with lock:

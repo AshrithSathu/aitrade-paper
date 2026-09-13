@@ -2,8 +2,16 @@
 <html lang="en">
   <meta charset="utf-8" /><meta
     name="viewport"
-    content="width=device-width,initial-scale=1"
+    content="width=device-width,initial-scale=1,viewport-fit=cover"
   /><title>Polymarket · AI paper desk</title>
+  <meta name="theme-color" content="#19334d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta
+    name="apple-mobile-web-app-status-bar-style"
+    content="black-translucent"
+  />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <link rel="stylesheet" href="/dashboard.css" />
   <header>
     <div>
@@ -46,7 +54,7 @@
           Zero profit target means no target. Open trades still settle after
           stopping.
         </p>
-        <div class="row">
+        <div class="row actions">
           <button id="start5">Start 5-minute</button
           ><button id="pause5" class="secondary">Stop 5-minute</button>
         </div>
@@ -80,13 +88,13 @@
           Zero profit target means no target. Open trades still settle after
           stopping.
         </p>
-        <div class="row">
+        <div class="row actions">
           <button id="start15">Start 15-minute</button
           ><button id="pause15" class="secondary">Stop 15-minute</button>
         </div>
       </div>
     </div>
-    <div role="tablist" aria-label="Market duration">
+    <div class="tabs" role="tablist" aria-label="Market duration">
       <button id="tab5" role="tab" aria-selected="true">5 minutes</button>
       <button id="tab15" role="tab" aria-selected="false" class="secondary">
         15 minutes

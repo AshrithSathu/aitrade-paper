@@ -14,11 +14,14 @@
 }
 body {
   margin: 0;
+  min-width: 320px;
 }
 header {
   background: #19334d;
   color: white;
-  padding: 22px 32px;
+  padding: calc(22px + env(safe-area-inset-top))
+    calc(32px + env(safe-area-inset-right)) 22px
+    calc(32px + env(safe-area-inset-left));
   display: flex;
   align-items: center;
   gap: 20px;
@@ -40,6 +43,8 @@ button {
   cursor: pointer;
   background: #246bb1;
   color: white;
+  min-height: 44px;
+  touch-action: manipulation;
 }
 button.secondary {
   background: #e5ebf2;
@@ -68,7 +73,8 @@ select:focus-visible {
 }
 main {
   max-width: 1500px;
-  padding: 26px 32px;
+  padding: 26px calc(32px + env(safe-area-inset-right)) 26px
+    calc(32px + env(safe-area-inset-left));
   margin: auto;
 }
 .layout {
@@ -150,6 +156,10 @@ a {
   align-items: center;
   gap: 12px;
 }
+.tabs {
+  display: flex;
+  gap: 8px;
+}
 .fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -170,6 +180,7 @@ select {
   background: white;
   color: #223248;
   font: inherit;
+  min-height: 44px;
 }
 label.wide {
   grid-column: 1/-1;
@@ -274,7 +285,9 @@ td {
 footer {
   color: #67798e;
   font-size: 12px;
-  padding: 0 32px 24px;
+  padding: 0 calc(32px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom))
+    calc(32px + env(safe-area-inset-left));
 }
 @media (max-width: 1000px) {
   .layout {
@@ -286,10 +299,13 @@ footer {
 }
 @media (max-width: 600px) {
   main {
-    padding: 16px;
+    padding: 16px calc(16px + env(safe-area-inset-right)) 16px
+      calc(16px + env(safe-area-inset-left));
   }
   header {
-    padding: 18px;
+    padding: calc(18px + env(safe-area-inset-top))
+      calc(18px + env(safe-area-inset-right)) 18px
+      calc(18px + env(safe-area-inset-left));
     flex-wrap: wrap;
   }
   .controls {
@@ -297,8 +313,44 @@ footer {
   }
   .panel {
     padding: 17px;
+    margin-bottom: 14px;
   }
   .metric strong {
     font-size: 22px;
+  }
+  .metrics {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .fields {
+    grid-template-columns: 1fr;
+  }
+  .actions {
+    align-items: stretch;
+  }
+  .actions button,
+  .tabs button {
+    flex: 1;
+  }
+  .quotes {
+    gap: 10px;
+  }
+  .quote {
+    padding: 15px;
+  }
+  .quote strong {
+    font-size: 30px;
+  }
+  .event .row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  input,
+  select {
+    font-size: 16px;
+  }
+  footer {
+    padding-right: calc(16px + env(safe-area-inset-right));
+    padding-left: calc(16px + env(safe-area-inset-left));
   }
 }

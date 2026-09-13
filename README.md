@@ -52,6 +52,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 - Entry cost and fees leave available cash immediately. A finished market can wait for official settlement while the next market uses only the remaining cash; its exact payout is credited independently, including while the account is stopped.
 - Account loss limits and profit targets stop new entries. There is no per-position early-exit stop-loss.
 - The visible dashboard uses a compact SSE connection, capped at one update per second and closed while its browser tab is hidden. Start/Stop and settings use HTTP POST; trade and AI history load by HTTP only when the event version changes.
+- The dashboard is an installable mobile PWA. Its service worker caches only the app shell; live prices, account data, controls and history always use the network.
 
 ## Data and persistence
 

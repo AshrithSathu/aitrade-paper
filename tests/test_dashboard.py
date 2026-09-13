@@ -881,6 +881,10 @@ def run():
                 ("/", "text/html"),
                 ("/dashboard.css", "text/css"),
                 ("/dashboard.js", "text/javascript"),
+                ("/manifest.webmanifest", "application/manifest+json"),
+                ("/service-worker.js", "text/javascript"),
+                ("/icon-192.png", "image/png"),
+                ("/icon-512.png", "image/png"),
             ]:
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{server.server_port}{route}",
@@ -894,6 +898,7 @@ def run():
                         assert b'id="decisionhistory"' in content
                         assert b'id="newerdecisions"' in content
                         assert b'id="olderdecisions"' in content
+                        assert b'rel="manifest"' in content
                     if route == "/dashboard.js":
                         assert b'$("pause" + mode).disabled' not in content
                         assert b'$("pause" + m).disabled' not in content
@@ -907,6 +912,18 @@ def run():
                         assert b"history.decisions" in content
                         assert b'"&page=" + page' in content
                         assert b'addEventListener("visibilitychange"' in content
+                        assert b"navigator.serviceWorker.register" in content
+                    if route == "/manifest.webmanifest":
+                        manifest = json.loads(content)
+                        assert manifest["display"] == "standalone"
+                        assert {icon["sizes"] for icon in manifest["icons"]} == {
+                            "192x192",
+                            "512x512",
+                        }
+                    if route == "/service-worker.js":
+                        assert b'url.pathname.startsWith("/api/")' in content
+                    if route.endswith(".png"):
+                        assert content.startswith(b"\x89PNG\r\n\x1a\n")
             req = urllib.request.Request(
                 f"http://127.0.0.1:{server.server_port}/api/status?minutes=5",
                 headers={"Host": "127.0.0.1:8765"},
