@@ -6,13 +6,14 @@
   /><title>BTC Trading</title>
   <meta name="theme-color" content="#19334d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="BTC Trading" />
   <meta
     name="apple-mobile-web-app-status-bar-style"
     content="black-translucent"
   />
-  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="manifest" href="/manifest.webmanifest?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
-  <link rel="stylesheet" href="/dashboard.css" />
+  <link rel="stylesheet" href="/dashboard.css?v=3" />
   <header>
     <div>
       <h1>BTC trading</h1>
@@ -22,7 +23,7 @@
   </header>
   <main>
     <div class="metrics account-controls">
-      <div class="panel">
+      <div class="panel" id="account5">
         <div class="row">
           <h2>5-minute account</h2>
           <span id="mode5" class="sub">Stopped</span>
@@ -56,7 +57,7 @@
           ><button id="pause5" class="secondary">Stop 5-minute</button>
         </div>
       </div>
-      <div class="panel">
+      <div class="panel" id="account15" hidden>
         <div class="row">
           <h2>15-minute account</h2>
           <span id="mode15" class="sub">Stopped</span>
@@ -303,5 +304,5 @@
       </aside>
     </div>
   </main>
-  <script src="/dashboard.js"></script>
+  <script src="/dashboard.js?v=3"></script>
 </html>

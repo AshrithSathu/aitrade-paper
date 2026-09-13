@@ -55,6 +55,8 @@ function selectDuration(minutes, historyMethod) {
   for (const m of durations) {
     $("tab" + m).setAttribute("aria-selected", String(m === minutes));
     $("tab" + m).className = m === minutes ? "" : "secondary";
+    $("account" + m).hidden = m !== minutes;
+    $("limits" + m).hidden = m !== minutes;
   }
   if (historyMethod) {
     const url = new URL(location.href);
@@ -126,8 +128,6 @@ for (const minutes of ["5", "15"]) {
 
 function render(update) {
   latest = update;
-  for (const minutes of ["5", "15"])
-    $("limits" + minutes).hidden = minutes !== selectedMinutes;
   const d = update.accounts[selectedMinutes],
     s = d.state,
     a = d.account,
@@ -380,5 +380,7 @@ document.addEventListener("visibilitychange", () => {
 connectStream();
 if ("serviceWorker" in navigator)
   window.addEventListener("load", () =>
-    navigator.serviceWorker.register("/service-worker.js"),
+    navigator.serviceWorker.register("/service-worker.js?v=3", {
+      updateViaCache: "none",
+    }),
   );

@@ -120,7 +120,7 @@ h3 {
   gap: 16px;
 }
 .account-controls {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 .metric {
   border-bottom: 3px solid #b8cadd;

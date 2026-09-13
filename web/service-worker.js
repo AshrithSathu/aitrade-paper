@@ -1,9 +1,9 @@
-const CACHE = "btc-trading-v2";
+const CACHE = "btc-trading-v3";
 const APP_SHELL = [
   "/",
-  "/dashboard.css",
-  "/dashboard.js",
-  "/manifest.webmanifest",
+  "/dashboard.css?v=3",
+  "/dashboard.js?v=3",
+  "/manifest.webmanifest?v=3",
   "/icon-192.png",
   "/icon-512.png",
 ];
