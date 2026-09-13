@@ -1,4 +1,4 @@
-# What Astra receives
+# What Terra receives
 
 The prompt is a structured decision brief, not a provider response dump. Prices used for execution retain their original precision; historical table prices are rounded to USD cents. JSON field names and table columns identify units. Summaries do not guarantee a correct trade.
 

@@ -1,6 +1,6 @@
 # BTC paper trading
 
-Independent 5-minute and 15-minute Polymarket paper accounts. Codex CLI (Astra Low) reviews each market once; no real orders or wallet connection.
+Independent 5-minute and 15-minute Polymarket paper accounts. Codex CLI (Terra Medium) reviews each market once; no real orders or wallet connection.
 
 ## Repository layout
 

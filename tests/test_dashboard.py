@@ -640,8 +640,8 @@ def run():
         popen = subprocess.Popen
 
         def fake_codex(*args, **kwargs):
-            assert args[0][args[0].index("--model") + 1] == "gpt-6-astra"
-            assert 'model_reasoning_effort="low"' in args[0]
+            assert args[0][args[0].index("--model") + 1] == "gpt-5.6-terra"
+            assert 'model_reasoning_effort="medium"' in args[0]
             process = popen(
                 [sys.executable, "-c", "import time; time.sleep(60)"], **kwargs
             )
