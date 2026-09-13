@@ -17,7 +17,12 @@ const esc = (v) =>
   );
 const time = (v) =>
   new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-let selectedMinutes = "15",
+const durations = ["5", "15"];
+const durationFromUrl = () => {
+  const value = new URL(location.href).searchParams.get("minutes");
+  return durations.includes(value) ? value : "5";
+};
+let selectedMinutes = durationFromUrl(),
   actionBusy = false;
 const loadedSettings = new Set();
 const loadedModes = new Set();
@@ -26,17 +31,26 @@ function tabsDisabled(value) {
   $("tab5").disabled = value;
   $("tab15").disabled = value;
 }
-for (const minutes of ["5", "15"])
+function selectDuration(minutes, historyMethod) {
+  selectedMinutes = minutes;
+  $("saved").textContent = "";
+  for (const m of durations) {
+    $("tab" + m).setAttribute("aria-selected", String(m === minutes));
+    $("tab" + m).className = m === minutes ? "" : "secondary";
+  }
+  if (historyMethod) {
+    const url = new URL(location.href);
+    url.searchParams.set("minutes", minutes);
+    history[historyMethod](null, "", url);
+  }
+  if (latest) render(latest);
+}
+for (const minutes of durations)
   $("tab" + minutes).onclick = () => {
-    if (actionBusy) return;
-    selectedMinutes = minutes;
-    $("saved").textContent = "";
-    for (const m of ["5", "15"]) {
-      $("tab" + m).setAttribute("aria-selected", String(m === minutes));
-      $("tab" + m).className = m === minutes ? "" : "secondary";
-    }
-    if (latest) render(latest);
+    if (!actionBusy) selectDuration(minutes, "pushState");
   };
+window.onpopstate = () => selectDuration(durationFromUrl());
+selectDuration(selectedMinutes, "replaceState");
 async function action(path, body = {}, minutes = selectedMinutes) {
   if (actionBusy) return;
   actionBusy = true;

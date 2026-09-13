@@ -791,6 +791,11 @@ def run():
                     if route == "/dashboard.js":
                         assert b'$("pause" + mode).disabled' not in content
                         assert b'$("pause" + m).disabled' not in content
+                        assert (
+                            b'return durations.includes(value) ? value : "5"' in content
+                        )
+                        assert b'url.searchParams.set("minutes", minutes)' in content
+                        assert b"window.onpopstate" in content
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
             )
