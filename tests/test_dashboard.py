@@ -641,12 +641,24 @@ def run():
             apply(decision(), original)
             assert not s["positions"]
             assert "BTC moved $" in s["events"][-1]["reason"]
+            e.snapshots["BTC"]["underlying"]["price"] = "95.6"
+            apply(decision(), original)
+            assert "BTC" in s["positions"]  # Small response-time drift is absorbed.
+            s["positions"].clear()
+            s["cash"] = "1000"
             e.snapshots["BTC"]["underlying"]["price"] = "101"
             original = e.payload("market_entry_review")
-            e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".85"
             apply(decision(), original)
             assert not s["positions"]
             assert "UP ask rose $" in s["events"][-1]["reason"]
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
+            apply(decision(), original)
+            assert (
+                "BTC" in s["positions"]
+            )  # One tick of response-time drift is absorbed.
+            s["positions"].clear()
+            s["cash"] = "1000"
             original = e.payload("market_entry_review")
             e.snapshots["BTC"]["underlying"]["price"] = "107"
             e.snapshots["BTC"]["yes_ask_dollars"] = ".79"
