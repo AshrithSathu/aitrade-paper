@@ -201,7 +201,7 @@ def codex_decision(payload, cancel):
             "estimated_up_probability": {"type": "string"},
             "quantity": {"type": "string"},
             "limit_price": {"type": "string"},
-            "valid_for_seconds": {"type": "string"},
+            "valid_for_seconds": {"type": "string", "enum": ["0", "30"]},
             "max_underlying_drift_usd": {"type": "string"},
             "max_contract_drift": {"type": "string"},
             "reason": {"type": "string"},
@@ -236,7 +236,7 @@ def codex_decision(payload, cancel):
         "Return at most one decision per asset in review_assets, with its exact current ticker. Other assets and positions are context only. "
         "Your objective is to maximize the expected paper-account value across repeated markets while respecting every hard limit. This is an exploratory paper account: uncertainty is expected and does not require certainty or multiple independent confirmations. Never enter an asset with an open position. "
         "For every asset, first estimate P(UP) from 0 to 1 using the combined supplied evidence and return it as estimated_up_probability; P(DOWN)=1-P(UP). Compare those estimates with each outcome's fee-adjusted breakeven_win_probability. Choose ENTER_UP or ENTER_DOWN when that side has positive estimated edge after fees. Choose WAIT only when both estimated edges are non-positive, the directional evidence is genuinely balanced or contradictory, or required live data is unavailable. WAIT skips this market; there is no second attempt. "
-        "For entries return a conditional plan: quantity, maximum acceptable ask as limit_price, valid_for_seconds from the snapshot (15-30), maximum adverse BTC/USD movement from the snapshot as max_underlying_drift_usd, and maximum adverse selected-contract ask increase as max_contract_drift. For UP, a BTC rise is favorable; for DOWN, a BTC fall is favorable; a lower contract ask is favorable. Choose adverse bounds from current volatility and liquidity, allowing enough room for normal movement during the model response. "
+        "For entries, quantity must be no greater than strategy.size and quantity times the maximum acceptable ask plus fees must be no greater than strategy.max_trade. The trade cap is dollars, not contracts. Use valid_for_seconds=30 so the plan remains usable after the model response. Also return the maximum acceptable ask as limit_price, maximum adverse BTC/USD movement from the snapshot as max_underlying_drift_usd, and maximum adverse selected-contract ask increase as max_contract_drift. For UP, a BTC rise is favorable; for DOWN, a BTC fall is favorable; a lower contract ask is favorable. Choose adverse bounds from current volatility and liquidity, allowing enough room for normal movement during the model response. "
         'Use "0" for all five plan values when choosing WAIT. Do not assume a short-duration market guarantees profit. '
         "Evaluate historical context, data quality, time remaining, spread, depth, account exposure and loss budget. "
         "Use the supplied multi-timeframe signals as context, never mechanical entry rules. Incomplete windows and gaps reduce confidence; they do not automatically require WAIT when live data and enough recent history are available. Indicators derived from the same TWAP are correlated, so weigh them together rather than counting them as separate confirmations. "
@@ -393,11 +393,11 @@ def validate_decisions(value):
         if d["action"].startswith("ENTER") and (
             qty <= 0
             or not 0 < price < 1
-            or not 15 <= validity <= 30
+            or validity != 30
             or underlying_drift <= 0
             or contract_drift <= 0
         ):
-            raise ValueError("Entry needs positive values and 15-30 seconds validity")
+            raise ValueError("Entry needs positive values and 30 seconds validity")
         if d["action"] == "WAIT" and any(
             (qty, price, validity, underlying_drift, contract_drift)
         ):

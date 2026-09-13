@@ -507,7 +507,7 @@ def run():
                 estimated_up_probability=".55",
                 quantity=quantity or ("1" if entering else "0"),
                 limit_price=limit_price or (".85" if entering else "0"),
-                valid_for_seconds="20" if entering else "0",
+                valid_for_seconds="30" if entering else "0",
                 max_underlying_drift_usd="5" if entering else "0",
                 max_contract_drift=".03" if entering else "0",
                 reason="fixture",
