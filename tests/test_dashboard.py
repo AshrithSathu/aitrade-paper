@@ -664,6 +664,9 @@ def run():
             apply(decision(), original)
             assert not s["positions"]
             assert "UP ask rose $" in s["events"][-1]["reason"]
+            apply(decision(limit_price=".83"), original)
+            assert not s["positions"]
+            assert "above the AI maximum" in s["events"][-1]["reason"]
             e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
             apply(decision(), original)
             assert (

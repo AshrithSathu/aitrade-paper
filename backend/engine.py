@@ -442,14 +442,18 @@ class Engine:
         if adverse_contract_drift is None:
             return reject(f"{side} ask became unavailable")
         price_limit = common.dec(d["limit_price"])
+        if not 0 < price < 1:
+            return reject(f"{side} ask became unavailable")
+        if price > price_limit:
+            return reject(
+                f"{side} ask rose from ${old_price:.2f} to ${price:.2f}, above the AI maximum of ${price_limit:.2f}"
+            )
         contract_cap = min(contract_limit + Decimal(".01"), price_limit - old_price)
         if adverse_contract_drift > contract_cap:
             return reject(
                 f"{side} ask rose ${adverse_contract_drift:.2f}; maximum allowed was ${contract_cap:.2f}"
             )
         qty = common.dec(d["quantity"])
-        if price is None or not 0 < price < 1 or price > price_limit:
-            return reject("Ask above AI entry limit or unavailable")
         depth = m.get(("yes" if side == "UP" else "no") + "_ask_size_fp")
         if depth is None or common.dec(depth) < qty:
             return reject("Insufficient displayed entry size")
