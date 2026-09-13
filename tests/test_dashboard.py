@@ -887,6 +887,7 @@ def run():
                         )
                         assert b'url.searchParams.set("minutes", minutes)' in content
                         assert b"window.onpopstate" in content
+                        assert b"https://polymarket.com/event/" in content
                         assert b"history.outcomes" in content
                         assert b"history.decisions" in content
                         assert b'"&page=" + page' in content

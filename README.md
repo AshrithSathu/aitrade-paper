@@ -48,6 +48,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 - Reviews start 15 seconds after opening for both durations, with a 60-second dispatch window (15–under 75 seconds) to wait for validated data. Codex returns a short-lived conditional plan; the current BTC price and selected contract ask must remain inside its limits before entry. Missed windows, WAIT decisions and errors skip that market.
 - Codex has a 25-second timeout. Decisions older than 30 seconds are rejected. Pause cancels AI; open trades continue to official settlement.
 - Every scheduled review is labeled with the eventual Up/Down settlement. This includes WAIT decisions, so later analysis can compare skipped opportunities with executed trades.
+- Current markets, open positions, decisions and closed trades link to the matching market on Polymarket for direct comparison.
 - Account loss limits and profit targets stop new entries. There is no per-position early-exit stop-loss.
 - The visible dashboard uses a compact SSE connection, capped at one update per second and closed while its browser tab is hidden. Start/Stop and settings use HTTP POST; trade and AI history load by HTTP only when the event version changes.
 

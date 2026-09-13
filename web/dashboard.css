@@ -140,6 +140,10 @@ h3 {
   font-size: 12px;
   line-height: 1.6;
 }
+a {
+  color: #246bb1;
+  font-weight: 600;
+}
 .row {
   display: flex;
   justify-content: space-between;

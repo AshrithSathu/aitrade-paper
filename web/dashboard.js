@@ -15,6 +15,10 @@ const esc = (v) =>
         c
       ],
   );
+const marketLink = (ticker, label = "Open on Polymarket") =>
+  /^btc-updown-(5|15)m-\d+$/.test(ticker || "")
+    ? `<a href="https://polymarket.com/event/${encodeURIComponent(ticker)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`
+    : "";
 const time = (v) =>
   new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const durations = ["5", "15"];
@@ -129,6 +133,10 @@ function render(update) {
     u = m?.underlying;
   const settings = d.settings;
   $("markettitle").textContent = "Bitcoin · " + selectedMinutes + " minutes";
+  $("marketlink").innerHTML = marketLink(
+    m?.ticker,
+    "View this market on Polymarket",
+  );
   $("reviewpolicy").textContent =
     "One conditional review starting 15 seconds after opening. The live market must still match the AI plan before entry.";
   for (const [mode, info] of Object.entries(d.modes)) {
@@ -224,7 +232,7 @@ function render(update) {
     ? positions
         .map(
           (p) =>
-            `<div class="event"><strong>${esc(p.side)} · ${esc(p.status)}</strong><br>${esc(p.size)} contracts · Entry ${money(p.entry)} · Current value per contract ${money(p.last_mark)}</div>`,
+            `<div class="event"><strong>${esc(p.side)} · ${esc(p.status)}</strong><br>${esc(p.size)} contracts · Entry ${money(p.entry)} · Current value per contract ${money(p.last_mark)}<br>${marketLink(p.ticker)}</div>`,
         )
         .join("")
     : "No open trade.";
@@ -267,7 +275,7 @@ function renderHistory(minutes) {
         .reverse()
         .map(
           (e) =>
-            `<tr><td>${esc(new Date(e.at).toLocaleString())}</td><td>${esc(e.side)}</td><td>${esc(e.size)}</td><td>${money(e.entry)}</td><td>${money(e.exit)}</td><td class="${Number(e.pnl) < 0 ? "bad" : "good"}">${money(e.pnl)}</td></tr>`,
+            `<tr><td>${esc(new Date(e.at).toLocaleString())}</td><td>${marketLink(e.ticker, e.side)}</td><td>${esc(e.size)}</td><td>${money(e.entry)}</td><td>${money(e.exit)}</td><td class="${Number(e.pnl) < 0 ? "bad" : "good"}">${money(e.pnl)}</td></tr>`,
         )
         .join("")
     : '<tr><td colspan="6">No closed trades yet.</td></tr>';
@@ -297,7 +305,7 @@ function renderHistory(minutes) {
                 ? "Filled"
                 : "Not filled";
           const outcome = outcomes[decision.ticker] || "Outcome pending";
-          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="sub">${esc(new Date(decision.at).toLocaleString())}</span></div><div class="sub">${esc(fill)} · ${esc(outcome)}</div><div>${esc(decision.reason)}</div></div>`;
+          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="sub">${esc(new Date(decision.at).toLocaleString())}</span></div><div class="sub">${esc(fill)} · ${esc(outcome)} · ${marketLink(decision.ticker)}</div><div>${esc(decision.reason)}</div></div>`;
         })
         .join("")
     : "No decisions yet.";
