@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from collections import deque
 from datetime import datetime, timezone
 
 from . import common, market, storage
@@ -147,6 +148,9 @@ class BookStream:
     def __init__(self, m):
         self.market = copy.deepcopy(m)
         self.books = {}
+        self.book_samples = deque(maxlen=301)
+        self.trade_samples = deque(maxlen=5000)
+        self.flow_started = time.time()
         self.lock = threading.Lock()
         self.error = "Waiting for WebSocket books"
         self.metadata = {
@@ -181,11 +185,43 @@ class BookStream:
     def update(self, event):
         if event.get("error"):
             self.books.clear()
+            self.book_samples.clear()
+            self.trade_samples.clear()
+            self.flow_started = time.time()
             self.error = event["error"]
             return
         if event.get("market") != self.market["condition_id"]:
             return
         kind = event.get("event_type")
+        if kind == "last_trade_price":
+            side = next(
+                (
+                    s
+                    for s, token in self.market["tokens"].items()
+                    if token == event.get("asset_id")
+                ),
+                None,
+            )
+            if side is None:
+                return
+            try:
+                stamp, price, size = (
+                    common.dec(event[k]) for k in ("timestamp", "price", "size")
+                )
+                if (
+                    not all(v.is_finite() for v in (stamp, price, size))
+                    or not 0 < price < 1
+                    or size <= 0
+                    or not 0 <= time.time() * 1000 - float(stamp) <= 300000
+                    or event.get("side") not in ("BUY", "SELL")
+                ):
+                    return
+            except (KeyError, ValueError, ArithmeticError):
+                return
+            self.trade_samples.append(
+                (float(stamp) / 1000, side, event["side"], float(price), float(size))
+            )
+            return
         if kind not in ("book", "price_change", "tick_size_change"):
             return
         changes = event.get("price_changes", []) if kind == "price_change" else [event]
@@ -278,7 +314,94 @@ class BookStream:
                 if side not in self.books:
                     raise ValueError("Waiting for complete WebSocket books")
                 market.apply_book(m, copy.deepcopy(self.books[side]), side)
+            stamp = time.time()
+            if not self.book_samples or stamp - self.book_samples[-1][0] >= 1:
+                point = {}
+                for side, book in m["orderbook"].items():
+                    bid, ask = market.quote(m, side, "bid"), market.quote(m, side)
+                    depths = [
+                        sum(
+                            float(row["size"])
+                            for row in sorted(
+                                book[key],
+                                key=lambda row: float(row["price"]),
+                                reverse=reverse,
+                            )[:5]
+                        )
+                        for key, reverse in (("bids", True), ("asks", False))
+                    ]
+                    point[side] = {
+                        "mid": float((bid + ask) / 2)
+                        if bid is not None and ask is not None
+                        else None,
+                        "bid_depth": depths[0],
+                        "ask_depth": depths[1],
+                    }
+                self.book_samples.append((stamp, point))
+            m["flow"] = self.flow_context(stamp)
         m["book_source"] = "Polymarket market WebSocket"
+
+    def flow_context(self, stamp):
+        result = {
+            "source": "Observed public Polymarket WebSocket events",
+            "observed_seconds": round(stamp - self.flow_started, 1),
+            "windows": {},
+            "limitations": "Memory only; resets on reconnect/restart. Book samples at most once per second. Trade events are provider-reported BUY/SELL, not independently verified aggressor flow; no guaranteed complete tape or replay.",
+        }
+        for seconds in (30, 60, 180):
+            points = [
+                row for row in self.book_samples if stamp - seconds <= row[0] <= stamp
+            ]
+            trades = [
+                row for row in self.trade_samples if stamp - seconds <= row[0] <= stamp
+            ]
+            result["windows"][str(seconds) + "s"] = {
+                "book_samples": len(points),
+                "book_coverage_seconds": round(points[-1][0] - points[0][0], 1)
+                if points
+                else 0,
+                "max_sample_gap_seconds": round(
+                    max((b[0] - a[0] for a, b in zip(points, points[1:])), default=0), 1
+                ),
+                "trade_buffer_capped": len(self.trade_samples)
+                == self.trade_samples.maxlen,
+                "outcomes": {},
+            }
+            for side in self.market["tokens"]:
+                selected = [t for t in trades if t[1] == side]
+                volume = sum(t[4] for t in selected)
+                first, last = (
+                    (points[0][1].get(side), points[-1][1].get(side))
+                    if points
+                    else (None, None)
+                )
+                result["windows"][str(seconds) + "s"]["outcomes"][side] = {
+                    "mid_change_usd": last["mid"] - first["mid"]
+                    if first
+                    and last
+                    and first["mid"] is not None
+                    and last["mid"] is not None
+                    else None,
+                    "top5_bid_depth_change": last["bid_depth"] - first["bid_depth"]
+                    if first and last
+                    else None,
+                    "top5_ask_depth_change": last["ask_depth"] - first["ask_depth"]
+                    if first and last
+                    else None,
+                    "observed_trade_count": len(selected),
+                    "contracts": volume,
+                    "buy_contracts": sum(t[4] for t in selected if t[2] == "BUY"),
+                    "sell_contracts": sum(t[4] for t in selected if t[2] == "SELL"),
+                    "vwap_usd": sum(t[3] * t[4] for t in selected) / volume
+                    if volume
+                    else None,
+                    "last_trade_age_seconds": round(
+                        stamp - max(t[0] for t in selected), 1
+                    )
+                    if selected
+                    else None,
+                }
+        return result
 
 
 class Feed:

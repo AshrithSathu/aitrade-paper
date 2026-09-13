@@ -22,3 +22,9 @@ The prompt is a structured decision brief, not a provider response dump. Prices 
 Not collected: historical book changes, aggressor trade flow, independently verified exchange volume, or a calibrated probability baseline from matched resolved markets. These limitations are explicit in the brief. Static book size must not be treated as guaranteed fills or inferred order flow.
 
 Full books remain in engine memory for validation. Database price observations have 24-hour retention. Saved review files contain the exact decision brief sent to AI. A summary is not a backup of every provider field.
+
+## Recent market activity
+
+The briefing includes 30/60/180-second summaries of observed book mid-price and top-five depth changes, and public WebSocket trade-event counts, BUY/SELL contract totals and volume-weighted prices. These are provider-reported sides, not verified aggressor attribution. Book samples are at most once per second; at most 301 samples and 5,000 trade events are held in memory per market. Coverage, sample gaps and trade-buffer saturation are explicit. Reconnects and restarts clear this context; missing activity is not proof of no trading.
+
+Opening distance is also expressed in units of the RMS of up to 30 contiguous one-minute TWAP changes (at least 15 required). This is descriptive context, not a calibrated probability, expected future move or entry rule. Existing 24-hour recording continues unchanged; older data cannot be created instantly.

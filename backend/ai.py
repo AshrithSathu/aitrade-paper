@@ -41,6 +41,7 @@ def market_brief(m):
             "order_limits",
             "book_source",
             "signals",
+            "flow",
         )
         if k in m
     }
@@ -149,7 +150,7 @@ def market_brief(m):
             )
         brief["depth"]["outcomes"][side] = summary
     brief["context_limits"] = [
-        "No historical order-book changes or aggressor trade flow is collected",
+        "Recent observed book changes and trade prints are bounded local samples; no guaranteed complete trade tape or verified aggressor attribution",
         "No calibrated probability model or matched past-market outcomes; indicators alone do not establish an edge",
         "Provider identifiers, images and duplicate market metadata omitted; market rules and fee details retained",
     ]

@@ -206,6 +206,28 @@ def trading_signals(m):
         gain = sum(max(x, 0) for x in differences)
         loss = sum(max(-x, 0) for x in differences)
         rsi = 100 * gain / (gain + loss) if gain + loss else 50
+    recent = closed[-31:]
+    differences = [
+        float(b["close"]) - float(a["close"])
+        for a, b in zip(recent, recent[1:])
+        if b["t"] - a["t"] == 60000
+    ]
+    contiguous = len(differences) == len(recent) - 1 and len(differences) >= 15
+    rms = (
+        (sum(x * x for x in differences) / len(differences)) ** 0.5
+        if contiguous
+        else None
+    )
+    distance = float(u["delta"]) if u.get("delta") is not None else None
+    opening_context = {
+        "one_minute_rms_move_usd": rms,
+        "observations": len(differences),
+        "contiguous": contiguous,
+        "signed_opening_distance_in_rms_moves": distance / rms
+        if distance is not None and rms
+        else None,
+        "definition": "Signed opening distance divided by RMS of up to 30 contiguous completed one-minute TWAP changes; requires at least 15 changes. Descriptive scale only, not a settlement probability or forecast.",
+    }
     books = {}
     for side, book in m["orderbook"].items():
         bid, ask = quote(m, side, "bid"), quote(m, side)
@@ -229,6 +251,7 @@ def trading_signals(m):
         )
     return dict(
         windows=windows,
+        opening_distance_context=opening_context,
         rsi14_simple_closed_minutes=rsi,
         books=books,
         seconds_remaining=float(common.minutes_left(m) * 60),

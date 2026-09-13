@@ -125,6 +125,11 @@ def run():
         else:
             raise AssertionError(bad)
     stream = feeds.BookStream.__new__(feeds.BookStream)
+    from collections import deque
+
+    stream.book_samples = deque(maxlen=301)
+    stream.trade_samples = deque(maxlen=5000)
+    stream.flow_started = time.time() - 60
     stream.market = copy.deepcopy(m)
     stream.books = {}
     stream.metadata = {"UP": body}
@@ -165,7 +170,22 @@ def run():
         common.dec(row["price"]) != common.dec(".4")
         for row in stream.books["UP"]["bids"]
     )
+    trade = {
+        **body,
+        "event_type": "last_trade_price",
+        "side": "BUY",
+        "price": ".5",
+        "size": "4",
+    }
+    stream.update(trade)
+    flow = stream.flow_context(time.time())
+    assert flow["windows"]["60s"]["outcomes"]["UP"]["buy_contracts"] == 4
+    assert flow["windows"]["60s"]["outcomes"]["UP"]["vwap_usd"] == 0.5
+    stream.update({**trade, "size": "NaN"})
+    assert len(stream.trade_samples) == 1
+    assert ai.market_brief({**m, "flow": flow})["flow"] == flow
     stream.update({"error": "disconnected"})
+    assert not stream.trade_samples and not stream.book_samples
     assert not stream.books
     stream.update(
         {
@@ -241,6 +261,8 @@ def run():
     assert detailed["depth"]["outcomes"]["UP"]["asks"]["total_contracts"] == "20"
     assert len(detailed["contract_history"]["outcomes"]["UP"]) == 61
     signals = market.trading_signals(signal_market)
+    assert signals["opening_distance_context"]["one_minute_rms_move_usd"] == 1
+    assert signals["opening_distance_context"]["signed_opening_distance_in_rms_moves"] == -2
     assert (
         signals["windows"]["5m"]["complete"]
         and not signals["windows"]["60m"]["complete"]
