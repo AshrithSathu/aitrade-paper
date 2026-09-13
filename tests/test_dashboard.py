@@ -464,7 +464,7 @@ def run():
             "removed_ticks": 0,
             "removed_reviews": 0,
         }
-    # Closed flag alone or a near-one trading price never establishes a payout.
+    # Only exact terminal Gamma prices or explicit CLOB winner flags establish a payout.
     f = feeds.Feed.__new__(feeds.Feed)
     result = {
         "condition_id": m["condition_id"],
@@ -484,6 +484,19 @@ def run():
         assert f.market(raw["slug"])["payouts"] == {"UP": "1", "DOWN": "0"}
         result["is_50_50_outcome"] = True
         assert f.market(raw["slug"])["payouts"] == {"UP": "0.5", "DOWN": "0.5"}
+    gamma = {**raw, "closed": True, "outcomePrices": '["0.999", "0.001"]'}
+    result["is_50_50_outcome"] = False
+    result["tokens"][0]["winner"] = False
+    with patch.object(
+        feeds,
+        "get_json",
+        side_effect=lambda url: gamma if "/markets/slug/" in url else result,
+    ):
+        assert f.market(raw["slug"])["payouts"] is None
+    gamma["outcomePrices"] = '["0", "1"]'
+    with patch.object(feeds, "get_json", return_value=gamma) as request:
+        assert f.market(raw["slug"])["payouts"] == {"UP": "1", "DOWN": "0"}
+        assert request.call_count == 1
     from concurrent.futures import Future
 
     with (

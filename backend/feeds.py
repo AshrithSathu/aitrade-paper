@@ -485,10 +485,32 @@ class Feed:
         if raw.get("slug") != ticker:
             raise ValueError("Polymarket settlement slug mismatch")
         m = market.parse_market(raw, ticker.split("-")[0].upper())
+        payouts = None
+        outcomes = (
+            json.loads(raw["outcomes"])
+            if isinstance(raw.get("outcomes"), str)
+            else raw.get("outcomes", [])
+        )
+        prices = (
+            json.loads(raw["outcomePrices"])
+            if isinstance(raw.get("outcomePrices"), str)
+            else raw.get("outcomePrices", [])
+        )
+        if raw.get("closed") is True and len(outcomes) == len(prices) == 2:
+            terminal = {
+                outcome.upper(): common.dec(price)
+                for outcome, price in zip(outcomes, prices)
+            }
+            if set(terminal) == {"UP", "DOWN"} and (
+                set(terminal.values()) == {common.dec(0), common.dec(1)}
+                or set(terminal.values()) == {common.dec("0.5")}
+            ):
+                payouts = {side: str(terminal[side]) for side in ("UP", "DOWN")}
+        if payouts is not None:
+            return {**m, "payouts": payouts, "resolution": raw}
         result = get_json(common.CLOB + "/markets/" + m["condition_id"])
         if result.get("condition_id") != m["condition_id"]:
             raise ValueError("Settlement condition mismatch")
-        payouts = None
         tokens = result.get("tokens", [])
         if (
             result.get("closed") is True
