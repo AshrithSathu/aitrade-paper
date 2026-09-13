@@ -405,6 +405,13 @@ class Engine:
         side = "UP" if action == "ENTER_UP" else "DOWN"
         price = market.quote(m, side)
         snapshot = original["markets"][a]
+        estimated_up = common.dec(d["estimated_up_probability"])
+        estimated_side = estimated_up if side == "UP" else 1 - estimated_up
+        breakeven = common.dec(
+            snapshot["signals"]["books"][side]["breakeven_win_probability"]
+        )
+        if estimated_side <= breakeven:
+            return reject("AI probability estimate does not clear fees")
         old_price = common.dec(
             snapshot["yes_ask_dollars" if side == "UP" else "no_ask_dollars"]
         )

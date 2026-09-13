@@ -27,6 +27,12 @@ class FakeFeed:
                 no_ask_dollars="0.22",
                 yes_bid_dollars="0.79",
                 no_bid_dollars="0.20",
+                signals={
+                    "books": {
+                        "UP": {"breakeven_win_probability": ".54"},
+                        "DOWN": {"breakeven_win_probability": ".23"},
+                    }
+                },
                 underlying=dict(
                     price="101", opening_price="100", delta="1", source="fixture"
                 ),
@@ -498,6 +504,7 @@ def run():
                 asset="BTC",
                 ticker=f.data["BTC"]["ticker"],
                 action=action,
+                estimated_up_probability=".55",
                 quantity=quantity or ("1" if entering else "0"),
                 limit_price=limit_price or (".85" if entering else "0"),
                 valid_for_seconds="20" if entering else "0",
@@ -746,6 +753,7 @@ def run():
             [{**decision(), "valid_for_seconds": "31"}],
             [{**decision(), "max_underlying_drift_usd": "0"}],
             [{**decision(), "max_contract_drift": "0"}],
+            [{**decision(), "estimated_up_probability": "1.1"}],
             [{**decision("WAIT"), "limit_price": ".5"}],
         ]:
             try:

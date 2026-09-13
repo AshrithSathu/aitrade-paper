@@ -198,6 +198,7 @@ def codex_decision(payload, cancel):
             "asset": {"type": "string"},
             "ticker": {"type": "string"},
             "action": {"type": "string", "enum": ["ENTER_UP", "ENTER_DOWN", "WAIT"]},
+            "estimated_up_probability": {"type": "string"},
             "quantity": {"type": "string"},
             "limit_price": {"type": "string"},
             "valid_for_seconds": {"type": "string"},
@@ -209,6 +210,7 @@ def codex_decision(payload, cancel):
             "asset",
             "ticker",
             "action",
+            "estimated_up_probability",
             "quantity",
             "limit_price",
             "valid_for_seconds",
@@ -232,12 +234,13 @@ def codex_decision(payload, cancel):
         "The structured briefing has named sections, units and column definitions; it is preprocessed, not raw provider data. Use only this snapshot. Do not use tools, browse, read files, change settings or place real orders. "
         "Use market_minutes and review_policy to identify the selected market duration and its single entry-review time. Entered positions are held to official settlement, with no early exits or later AI reviews. "
         "Return at most one decision per asset in review_assets, with its exact current ticker. Other assets and positions are context only. "
-        "Choose ENTER_UP, ENTER_DOWN or WAIT. WAIT skips this market; there is no second attempt. Never enter an asset with an open position. "
+        "Your objective is to maximize the expected paper-account value across repeated markets while respecting every hard limit. This is an exploratory paper account: uncertainty is expected and does not require certainty or multiple independent confirmations. Never enter an asset with an open position. "
+        "For every asset, first estimate P(UP) from 0 to 1 using the combined supplied evidence and return it as estimated_up_probability; P(DOWN)=1-P(UP). Compare those estimates with each outcome's fee-adjusted breakeven_win_probability. Choose ENTER_UP or ENTER_DOWN when that side has positive estimated edge after fees. Choose WAIT only when both estimated edges are non-positive, the directional evidence is genuinely balanced or contradictory, or required live data is unavailable. WAIT skips this market; there is no second attempt. "
         "For entries return a conditional plan: quantity, maximum acceptable ask as limit_price, valid_for_seconds from the snapshot (15-30), maximum absolute BTC/USD movement from the snapshot as max_underlying_drift_usd, and maximum absolute selected-contract ask movement as max_contract_drift. Choose these bounds from current volatility and liquidity. "
         'Use "0" for all five plan values when choosing WAIT. Do not assume a short-duration market guarantees profit. '
         "Evaluate historical context, data quality, time remaining, spread, depth, account exposure and loss budget. "
         "Use the supplied multi-timeframe signals as context, never mechanical entry rules. Incomplete windows and gaps reduce confidence; they do not automatically require WAIT when live data and enough recent history are available. Indicators derived from the same TWAP are correlated, so weigh them together rather than counting them as separate confirmations. "
-        "Make the best probability judgment supported by the combined price path, opening distance, live contract prices, book changes, trade activity, fees and time remaining. A missing external calibration model or the normal lag of one-minute contract history is not by itself a reason to WAIT. Do not enter merely to create activity. "
+        "Make the best probability judgment supported by the combined price path, opening distance, live contract prices, book changes, trade activity, fees and time remaining. A modest positive estimated edge is enough for a small paper position; reserve larger quantities for stronger evidence. A missing external calibration model or the normal lag of one-minute contract history is not by itself a reason to WAIT. Do not enter merely to create activity or claim an edge when both sides are below breakeven. State P(UP), P(DOWN), the relevant breakeven and estimated edge in the reason. "
         "Missing required live books, current Chainlink TWAP or opening TWAP means WAIT. Hard spending limits cannot be overridden. "
         "Decisions expire 30 seconds after the supplied snapshot. Old tickers or changed positions cannot be acted on. "
         "When execution_allowed=false, this is a preview only. When it is true, describe the result as a paper-trading decision, not a preview. Return structured decisions and reasoning.\\n"
@@ -335,6 +338,7 @@ def validate_decisions(value):
                 "asset",
                 "ticker",
                 "action",
+                "estimated_up_probability",
                 "quantity",
                 "limit_price",
                 "valid_for_seconds",
@@ -353,9 +357,10 @@ def validate_decisions(value):
         ):
             raise ValueError("Invalid decision asset, ticker or action")
         seen.add(d["asset"])
-        qty, price, validity, underlying_drift, contract_drift = (
+        probability, qty, price, validity, underlying_drift, contract_drift = (
             common.dec(d[k])
             for k in (
+                "estimated_up_probability",
                 "quantity",
                 "limit_price",
                 "valid_for_seconds",
@@ -366,8 +371,16 @@ def validate_decisions(value):
         if (
             not all(
                 v.is_finite()
-                for v in (qty, price, validity, underlying_drift, contract_drift)
+                for v in (
+                    probability,
+                    qty,
+                    price,
+                    validity,
+                    underlying_drift,
+                    contract_drift,
+                )
             )
+            or not 0 <= probability <= 1
             or qty < 0
             or qty * 100 % 1
             or not 0 <= price <= 1

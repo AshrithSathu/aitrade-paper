@@ -2,6 +2,8 @@
 
 The prompt is a structured decision brief, not a provider response dump. Prices used for execution retain their original precision; historical table prices are rounded to USD cents. JSON field names and table columns identify units. Summaries do not guarantee a correct trade.
 
+Each decision must include Terra's estimated Up probability. Down is its complement. Terra compares both estimates with the supplied fee-adjusted breakeven probabilities and enters the positive-edge side when one exists. A modest estimated edge can use a small paper position; WAIT is reserved for two non-positive edges, genuinely balanced or contradictory evidence, or missing required live data.
+
 | Collected information | Sent to AI | Reason |
 | --- | --- | --- |
 | Market rules, window, resolution source | Full rules and exact timestamps | Defines the actual bet |
