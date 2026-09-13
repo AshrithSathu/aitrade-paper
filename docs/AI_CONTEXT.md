@@ -28,3 +28,9 @@ Full books remain in engine memory for validation. Database price observations h
 The briefing includes 30/60/180-second summaries of observed book mid-price and top-five depth changes, and public WebSocket trade-event counts, BUY/SELL contract totals and volume-weighted prices. These are provider-reported sides, not verified aggressor attribution. Book samples are at most once per second; at most 301 samples and 5,000 trade events are held in memory per market. Coverage, sample gaps and trade-buffer saturation are explicit. Reconnects and restarts clear this context; missing activity is not proof of no trading.
 
 Opening distance is also expressed in units of the RMS of up to 30 contiguous one-minute TWAP changes (at least 15 required). This is descriptive context, not a calibrated probability, expected future move or entry rule. Existing 24-hour recording continues unchanged; older data cannot be created instantly.
+
+## Conditional execution
+
+An entry response includes its maximum ask, lifetime from the snapshot, maximum BTC/USD drift and maximum selected-contract ask drift. The backend reads the current WebSocket-backed snapshot after Codex returns and rejects the plan if any bound is exceeded. These bounds come from the AI for that market; account limits, data freshness and the 30-second hard ceiling remain non-negotiable safety checks. WAIT uses zero values and consumes the market's single review.
+
+Every scheduled decision stores a small pending evaluation containing its ticker, action, snapshot asks and review time. After official settlement the account emits a `review_outcome` event with both payouts, then removes the pending evaluation. This labels WAIT decisions without adding a database table or duplicating the full saved review.

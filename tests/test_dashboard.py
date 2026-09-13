@@ -439,13 +439,17 @@ def run():
         clock = [common.now()]
         start = clock[0]
 
-        def decision(action="ENTER_UP", quantity="1", limit_price=".85"):
+        def decision(action="ENTER_UP", quantity=None, limit_price=None):
+            entering = action.startswith("ENTER")
             return dict(
                 asset="BTC",
                 ticker=f.data["BTC"]["ticker"],
                 action=action,
-                quantity=quantity,
-                limit_price=limit_price,
+                quantity=quantity or ("1" if entering else "0"),
+                limit_price=limit_price or (".85" if entering else "0"),
+                valid_for_seconds="20" if entering else "0",
+                max_underlying_drift_usd="5" if entering else "0",
+                max_contract_drift=".03" if entering else "0",
                 reason="fixture",
             )
 
@@ -493,9 +497,9 @@ def run():
                 not e.request_review("manual_account_review") and calls.call_count == 0
             )
             s["paused"] = False
-            fresh(4)
+            fresh(14)
             assert calls.call_count == 0
-            fresh(5)
+            fresh(15)
             assert calls.call_count == 1 and e.future is not None
             assert e.last_codex["payload"]["phases"]["BTC"] == "READY_FOR_REVIEW"
             assert (
@@ -529,20 +533,20 @@ def run():
             # Missing data through the dispatch window means zero calls, even after data recovers.
             s["reviewed_markets"].clear()
             f.data["BTC"]["underlying"]["error"] = "missing opening"
-            fresh(5)
+            fresh(15)
             assert calls.call_count == n
             f.data["BTC"]["underlying"].pop("error")
-            fresh(65)
+            fresh(75)
             assert calls.call_count == n
             # Preview and pause/resume invalidation cannot grant trading authority.
-            fresh(5)
+            fresh(15)
             original = e.last_codex["payload"]
             s["paused"] = True
             finish("ENTER_UP")
             assert not s["positions"]
             s["paused"] = False
             s["reviewed_markets"].clear()
-            fresh(5)
+            fresh(15)
             e.epoch += 1
             finish("ENTER_UP")
             assert not s["positions"]
@@ -559,6 +563,16 @@ def run():
             assert not s["positions"]
             apply(decision(quantity="2"))
             assert not s["positions"]
+            original = e.payload("market_entry_review")
+            e.snapshots["BTC"]["underlying"]["price"] = "107"
+            apply(decision(), original)
+            assert not s["positions"]
+            e.snapshots["BTC"]["underlying"]["price"] = "101"
+            original = e.payload("market_entry_review")
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
+            apply(decision(), original)
+            assert not s["positions"]
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".80"
             e.config["max_trade"] = common.dec(".1")
             apply(decision())
             assert not s["positions"]
@@ -566,11 +580,11 @@ def run():
             e.snapshots["BTC"]["yes_ask_size_fp"] = "0"
             apply(decision())
             assert not s["positions"]
-            fresh(6)
+            fresh(16)
             e.snapshots["BTC"]["underlying"]["history"] = {"samples": 0}
             apply(decision())
             assert not s["positions"]
-            fresh(7)
+            fresh(17)
             e.config["daily_loss"] = common.dec("-.01")
             apply(decision())
             assert not s["positions"]
@@ -598,6 +612,7 @@ def run():
             e.settle_checked.clear()
             fresh(901)
             assert not s["pending"] and s["trades"] == 1
+            assert any(event["kind"] == "review_outcome" for event in s["events"])
             cash = s["cash"]
             fresh(902)
             assert s["cash"] == cash and common.dec(cash) == 1001 - cost
@@ -605,7 +620,7 @@ def run():
             start = clock[0]
             f.data["BTC"]["ticker"] = "btc-updown-15m-1789263900"
             s["paused"] = False
-            fresh(5)
+            fresh(15)
             assert e.future is not None
             finish("ENTER_DOWN")
             assert s["positions"]["BTC"]["side"] == "DOWN"
@@ -675,6 +690,10 @@ def run():
             [decision(), decision()],
             [decision("EXIT")],
             [decision("HOLD")],
+            [{**decision(), "valid_for_seconds": "31"}],
+            [{**decision(), "max_underlying_drift_usd": "0"}],
+            [{**decision(), "max_contract_drift": "0"}],
+            [{**decision("WAIT"), "limit_price": ".5"}],
         ]:
             try:
                 ai.validate_decisions({"decisions": actions, "reason": "bad"})

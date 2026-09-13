@@ -166,9 +166,22 @@ def codex_decision(payload, cancel):
             "action": {"type": "string", "enum": ["ENTER_UP", "ENTER_DOWN", "WAIT"]},
             "quantity": {"type": "string"},
             "limit_price": {"type": "string"},
+            "valid_for_seconds": {"type": "string"},
+            "max_underlying_drift_usd": {"type": "string"},
+            "max_contract_drift": {"type": "string"},
             "reason": {"type": "string"},
         },
-        "required": ["asset", "ticker", "action", "quantity", "limit_price", "reason"],
+        "required": [
+            "asset",
+            "ticker",
+            "action",
+            "quantity",
+            "limit_price",
+            "valid_for_seconds",
+            "max_underlying_drift_usd",
+            "max_contract_drift",
+            "reason",
+        ],
         "additionalProperties": False,
     }
     schema = {
@@ -186,8 +199,8 @@ def codex_decision(payload, cancel):
         "Use market_minutes and review_policy to identify the selected market duration and its single entry-review time. Entered positions are held to official settlement, with no early exits or later AI reviews. "
         "Return at most one decision per asset in review_assets, with its exact current ticker. Other assets and positions are context only. "
         "Choose ENTER_UP, ENTER_DOWN or WAIT. WAIT skips this market; there is no second attempt. Never enter an asset with an open position. "
-        "For entries set quantity in contracts and limit_price to your maximum acceptable ask. "
-        'Use quantity and limit_price of "0" for WAIT. Do not assume a short-duration market guarantees profit. '
+        "For entries return a conditional plan: quantity, maximum acceptable ask as limit_price, valid_for_seconds from the snapshot (15-30), maximum absolute BTC/USD movement from the snapshot as max_underlying_drift_usd, and maximum absolute selected-contract ask movement as max_contract_drift. Choose these bounds from current volatility and liquidity. "
+        'Use "0" for all five plan values when choosing WAIT. Do not assume a short-duration market guarantees profit. '
         "Evaluate historical context, data quality, time remaining, spread, depth, account exposure and loss budget. "
         "Use the supplied multi-timeframe signals as context, never mechanical entry rules. Incomplete windows and gaps reduce confidence; indicators derived from the same TWAP are not independent evidence. "
         "Missing live or historical data means WAIT for entries; explain uncertainty. Hard spending limits cannot be overridden. "
@@ -283,7 +296,17 @@ def validate_decisions(value):
         if (
             not isinstance(d, dict)
             or set(d)
-            != {"asset", "ticker", "action", "quantity", "limit_price", "reason"}
+            != {
+                "asset",
+                "ticker",
+                "action",
+                "quantity",
+                "limit_price",
+                "valid_for_seconds",
+                "max_underlying_drift_usd",
+                "max_contract_drift",
+                "reason",
+            }
             or not all(isinstance(v, str) for v in d.values())
         ):
             raise ValueError("Invalid decision fields")
@@ -295,14 +318,39 @@ def validate_decisions(value):
         ):
             raise ValueError("Invalid decision asset, ticker or action")
         seen.add(d["asset"])
-        qty, price = common.dec(d["quantity"]), common.dec(d["limit_price"])
+        qty, price, validity, underlying_drift, contract_drift = (
+            common.dec(d[k])
+            for k in (
+                "quantity",
+                "limit_price",
+                "valid_for_seconds",
+                "max_underlying_drift_usd",
+                "max_contract_drift",
+            )
+        )
         if (
-            not qty.is_finite()
-            or not price.is_finite()
+            not all(
+                v.is_finite()
+                for v in (qty, price, validity, underlying_drift, contract_drift)
+            )
             or qty < 0
             or qty * 100 % 1
             or not 0 <= price <= 1
+            or validity < 0
+            or validity % 1
+            or underlying_drift < 0
+            or not 0 <= contract_drift <= 1
         ):
-            raise ValueError("Invalid decision quantity or limit price")
-        if d["action"].startswith("ENTER") and (qty <= 0 or not 0 < price < 1):
-            raise ValueError("Entry needs positive quantity and limit price")
+            raise ValueError("Invalid conditional plan values")
+        if d["action"].startswith("ENTER") and (
+            qty <= 0
+            or not 0 < price < 1
+            or not 15 <= validity <= 30
+            or underlying_drift <= 0
+            or contract_drift <= 0
+        ):
+            raise ValueError("Entry needs positive values and 15-30 seconds validity")
+        if d["action"] == "WAIT" and any(
+            (qty, price, validity, underlying_drift, contract_drift)
+        ):
+            raise ValueError("WAIT plan values must be zero")

@@ -104,7 +104,7 @@ function render(update) {
   const settings = d.settings;
   $("markettitle").textContent = "Bitcoin · " + selectedMinutes + " minutes";
   $("reviewpolicy").textContent =
-    "One review starting 5 seconds after opening, once data is ready. Enter Up, Down, or skip. Trades stay open until settlement.";
+    "One conditional review starting 15 seconds after opening. The live market must still match the AI plan before entry.";
   for (const [mode, info] of Object.entries(d.modes)) {
     $("mode" + mode).textContent = info.halted
       ? "Limit reached"

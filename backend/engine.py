@@ -58,6 +58,7 @@ class Engine:
         self.review_lock = threading.RLock()
         self.cancel_review = threading.Event()
         self.state.setdefault("reviewed_markets", {})
+        self.state.setdefault("evaluations", {})
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.feed_pool = ThreadPoolExecutor(max_workers=7)
         if (self.data_dir / "codex-latest.json").exists():
@@ -80,7 +81,7 @@ class Engine:
                 execution_allowed=not self.state["paused"]
                 and trigger == "market_entry_review",
                 review_assets=list(self.config["assets"] if assets is None else assets),
-                review_policy="One review starting 5 seconds after market opening (60-second dispatch window); WAIT/error skips market; hold entries to official settlement",
+                review_policy="One conditional-plan review starting 15 seconds after market opening (60-second dispatch window); WAIT/error skips market; hold entries to official settlement",
                 strategy={
                     k: v
                     for k, v in self.config.items()
@@ -127,9 +128,9 @@ class Engine:
             and m.get("market_minutes", 15) == int(self.config["market_minutes"])
             and asset not in self.state["positions"]
             and self.state["reviewed_markets"].get(asset) != m["ticker"]
-            and 5
+            and 15
             <= (common.now() - common.parse_time(m["open_time"])).total_seconds()
-            < 5 + 60
+            < 15 + 60
             and self.ready(asset, history=True)
         )
 
@@ -240,6 +241,17 @@ class Engine:
             self.emit(
                 "codex", reason=response["reason"], decisions=response["decisions"]
             )
+            if original["execution_allowed"]:
+                for d in response["decisions"]:
+                    snapshot = original["markets"][d["asset"]]
+                    self.state["evaluations"][d["ticker"]] = {
+                        "asset": d["asset"],
+                        "action": d["action"],
+                        "reviewed_at": original["at"],
+                        "close_time": snapshot["close_time"],
+                        "yes_ask": snapshot.get("yes_ask_dollars"),
+                        "no_ask": snapshot.get("no_ask_dollars"),
+                    }
             if (
                 original["execution_allowed"]
                 and not self.state["paused"]
@@ -358,12 +370,9 @@ class Engine:
             return reject(
                 "Only entry decisions are allowed; positions hold to settlement"
             )
-        if (
-            not 0
-            <= (common.now() - common.parse_time(original["at"])).total_seconds()
-            <= 30
-        ):
-            return reject("AI snapshot expired")
+        age = (common.now() - common.parse_time(original["at"])).total_seconds()
+        if not 0 <= age <= float(common.dec(d["valid_for_seconds"])):
+            return reject("AI plan expired")
         if a not in self.config["assets"] or not self.ready(a):
             return reject("Market data unavailable or stale")
         m = self.snapshots[a]
@@ -388,6 +397,21 @@ class Engine:
             )
         side = "UP" if action == "ENTER_UP" else "DOWN"
         price = market.quote(m, side)
+        snapshot = original["markets"][a]
+        old_price = common.dec(
+            snapshot["yes_ask_dollars" if side == "UP" else "no_ask_dollars"]
+        )
+        underlying_drift = abs(
+            common.dec(m["underlying"]["price"])
+            - common.dec(snapshot["underlying"]["price"])
+        )
+        contract_drift = abs(price - old_price) if price is not None else None
+        if (
+            underlying_drift > common.dec(d["max_underlying_drift_usd"])
+            or contract_drift is None
+            or contract_drift > common.dec(d["max_contract_drift"])
+        ):
+            return reject("Live market moved outside the AI plan")
         qty = common.dec(d["quantity"])
         if price is None or not 0 < price < 1 or price > common.dec(d["limit_price"]):
             return reject("Ask above AI entry limit or unavailable")
@@ -495,6 +519,27 @@ class Engine:
                 self.errors.pop("settlement:" + ticker, None)
             except Exception as exc:
                 self.errors["settlement:" + ticker] = str(exc)
+        for ticker, evaluation in list(s["evaluations"].items()):
+            if ticker in s["positions"] or ticker in s["pending"]:
+                continue
+            check = "evaluation:" + ticker
+            if time.monotonic() - self.settle_checked.get(check, 0) < 10:
+                continue
+            self.settle_checked[check] = time.monotonic()
+            try:
+                if common.parse_time(evaluation["close_time"]) > common.now():
+                    continue
+                result = self.feed.market(ticker)
+                payouts = result.get("payouts")
+                if payouts is None:
+                    continue
+                s["evaluations"].pop(ticker)
+                self.settle_checked.pop(check, None)
+                self.emit(
+                    "review_outcome", ticker=ticker, **evaluation, payouts=payouts
+                )
+            except Exception:
+                pass
         for a in c["assets"]:
             m = self.snapshots.get(a)
             if not m or a in self.errors:
@@ -510,9 +555,9 @@ class Engine:
                 else "REVIEW_USED"
                 if s["reviewed_markets"].get(a) == m["ticker"]
                 else "SKIPPED_WINDOW"
-                if elapsed >= 5 + 60
+                if elapsed >= 15 + 60
                 else "WAIT_REVIEW_TIME"
-                if elapsed < 5
+                if elapsed < 15
                 else "READY_FOR_REVIEW"
                 if self.ready(a, history=True)
                 else "WAIT_DATA"
