@@ -7,7 +7,7 @@ const marketPanel=document.createElement('div');marketPanel.className='panel';ma
 $('position').closest('.panel').before(marketPanel);
 const reviewPanel=document.createElement('div');reviewPanel.className='panel';reviewPanel.innerHTML='<div class="row"><h2>Codex review</h2><button type="button" id="review">Review now</button></div><p id="reviewstatus" role="status">No review yet.</p><details><summary>Exact Codex input and decisions</summary><pre id="payload" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:450px;overflow:auto"></pre></details><p class="sub">Each completed review is saved under data/polymarket/codex-reviews. Manual reviews require active paper trading and are previews only. One scheduled entry review per market, three minutes after opening. Entries hold to settlement.</p>';
 $('activity').closest('.panel').before(reviewPanel);
-reviewPanel.insertAdjacentHTML('beforeend','<details><summary>Codex account login</summary><p>Sign in separately on this server. Trading stays paused.</p><button type="button" id="codexlogin">Sign in to Codex</button><pre id="loginoutput" style="white-space:pre-wrap" aria-live="polite"></pre></details>');
+reviewPanel.insertAdjacentHTML('beforeend','<details><summary id="loginstatus">Checking Codex login…</summary><p>Astra · High reasoning</p><button type="button" id="codexlogin">Sign in to Codex</button><pre id="loginoutput" style="white-space:pre-wrap" aria-live="polite"></pre></details>');
 $('codexlogin').onclick=()=>action('codex/login');
 $('trades').closest('.panel').insertAdjacentHTML('beforeend','<a href="/api/history" target="_blank" rel="noopener">View complete event history (JSON)</a>');
 async function action(path,body={}){
@@ -19,7 +19,7 @@ form.onsubmit=e=>{e.preventDefault();const data=new FormData(form),body=Object.f
 async function refresh(){
  if(inFlight)return;inFlight=true;
  try{
-  const loginResponse=await fetch('/api/codex/login');if(loginResponse.ok){const login=await loginResponse.json();$('loginoutput').textContent=login.output;$('codexlogin').disabled=login.running;}
+  const loginResponse=await fetch('/api/codex/login');if(loginResponse.ok){const login=await loginResponse.json();$('loginoutput').textContent=login.output;$('loginstatus').textContent=login.status;$('codexlogin').hidden=login.authenticated;$('codexlogin').disabled=login.running;$('loginoutput').hidden=login.authenticated;}
   const r=await fetch('/api/status');if(!r.ok)throw Error('Status unavailable');const d=await r.json(),s=d.state,a=d.account,events=s.events;
   if(!loaded){Object.entries(d.settings).forEach(([k,v])=>{if(k==='assets')form.querySelectorAll('[name=assets]').forEach(el=>el.checked=v.includes(el.value));else if(form.elements[k])form.elements[k].value=v});loaded=true}
   $('badge').textContent=s.halted?'Limit reached':d.paused?'Trading paused':'Trading';$('start').disabled=!d.paused||!!s.halted;$('pause').disabled=d.paused;

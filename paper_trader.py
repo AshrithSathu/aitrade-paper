@@ -277,7 +277,7 @@ def codex_decision(payload,cancel):
     with tempfile.TemporaryDirectory() as folder:
         schema_file=Path(folder)/'schema.json';output=Path(folder)/'output.json'
         schema_file.write_text(json.dumps(schema))
-        cmd=['codex','exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--ignore-user-config','--output-schema',str(schema_file),'-o',str(output),'-']
+        cmd=['codex','exec','--model','gpt-6-astra','-c','model_reasoning_effort="high"','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--ignore-user-config','--output-schema',str(schema_file),'-o',str(output),'-']
         env={k:v for k,v in os.environ.items() if not k.startswith(('KALSHI_','POLYMARKET_','CHAINLINK_'))}
         if cancel.is_set():raise RuntimeError('Review cancelled: trading paused')
         process=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,cwd=folder,env=env,start_new_session=True)

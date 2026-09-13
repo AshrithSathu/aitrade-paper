@@ -14,7 +14,17 @@ import paper_trader as p
 lock=threading.Lock()
 idle=threading.Condition(lock)
 view={'busy':False,'error':None,'updated':None}
-login={'running':False,'output':''}
+login={'running':False,'output':'','authenticated':False,'status':'Checking Codex login','checked_at':0}
+
+def refresh_login():
+    if login['running'] or time.monotonic()-login['checked_at']<60:return
+    try:
+        result=subprocess.run(['codex','login','status'],capture_output=True,text=True,timeout=5)
+        login.update(authenticated=result.returncode==0,status='Codex connected' if result.returncode==0 else 'Codex sign-in required')
+    except (OSError,subprocess.TimeoutExpired):
+        login.update(authenticated=False,status='Could not check Codex login')
+    login['checked_at']=time.monotonic()
+
 
 def codex_login():
     try:
@@ -28,7 +38,8 @@ def codex_login():
     except Exception:
         with lock:login['output']='Login failed. Retry login.'
     finally:
-        with lock:login['running']=False
+        with lock:
+            login['running']=False;login['checked_at']=0;refresh_login()
 
 def allowed_origins(public_origin):
     origins=[None,'http://127.0.0.1:8765','http://localhost:8765']
@@ -71,7 +82,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.local():return self.send(403,{'error':'Local requests only'})
         if self.path=='/api/codex/login':
-            with lock:return self.send(200,dict(login))
+            with lock:
+                refresh_login()
+                return self.send(200,dict(login))
         if self.path=='/':return self.send(200,(p.ROOT/'dashboard.html').read_bytes(),'text/html; charset=utf-8')
         if self.path=='/dashboard.js':return self.send(200,(p.ROOT/'dashboard.js').read_bytes(),'text/javascript; charset=utf-8')
         if self.path=='/api/status':

@@ -133,6 +133,8 @@ def run():
         # A real local subprocess stands in for Codex; pause must stop it and block previews.
         launched=threading.Event();processes=[];popen=subprocess.Popen
         def fake_codex(*args,**kwargs):
+            assert args[0][args[0].index('--model')+1]=='gpt-6-astra'
+            assert 'model_reasoning_effort="high"' in args[0]
             process=popen([sys.executable,'-c','import time; time.sleep(60)'],**kwargs)
             processes.append(process);launched.set();return process
         s['paused']=False
@@ -153,6 +155,11 @@ def run():
             try:p.validate_decisions({'decisions':actions,'reason':'bad'})
             except ValueError:pass
             else:raise AssertionError('Invalid actions accepted')
+    import dashboard as dashboard
+    with patch.object(dashboard.subprocess,'run',return_value=subprocess.CompletedProcess([],0)),patch.object(dashboard.time,'monotonic',return_value=100):
+        dashboard.refresh_login();assert dashboard.login['authenticated']
+    with patch.object(dashboard.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),patch.object(dashboard.time,'monotonic',return_value=200):
+        dashboard.refresh_login();assert not dashboard.login['authenticated']
     print('Passed parsing, once-per-market scheduling, restart/error/preview isolation, entry limits and hold-to-settlement accounting')
 
 if __name__=='__main__':run()
