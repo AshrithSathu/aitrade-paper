@@ -73,12 +73,37 @@ def run():
     assert p.parse_twap({**event,'payload':{**event['payload'],'window_s':30}})==[]
     with tempfile.TemporaryDirectory() as folder:
         stream=p.Chainlink.__new__(p.Chainlink);stream.path=Path(folder)/'history.sqlite';stream.error=None
+        from types import SimpleNamespace
+        def window(asset,start):
+            with sqlite3.connect(stream.path) as db:
+                return db.execute('SELECT timestamp,value FROM ticks WHERE asset=? ORDER BY timestamp',(asset,)).fetchall(),db.execute('SELECT value FROM ticks WHERE asset=? AND timestamp=?',(asset,start)).fetchone()
+        stream.history=SimpleNamespace(window=window)
         with sqlite3.connect(stream.path) as db:
             db.execute('CREATE TABLE ticks (asset TEXT,timestamp INTEGER,value TEXT,PRIMARY KEY(asset,timestamp))')
             db.executemany('INSERT INTO ticks VALUES (?,?,?)',ticks)
         opening=p.datetime.fromtimestamp(stamp/1000,p.timezone.utc).isoformat()
         u=stream.underlying('BTC',{'open_time':opening});assert u['open15m']==ticks[0][2] and u['history']['samples']==1
         assert stream.underlying('BTC',{'open_time':(p.parse_time(opening)-timedelta(seconds=1)).isoformat()})['open15m'] is None
+    # Retention only expires old prices/reviews, preserving boundaries and account/login files.
+    import os,uuid
+    with tempfile.TemporaryDirectory() as folder,patch.object(p,'DATA',Path(folder)):
+        root=Path(folder);at=time.time();cutoff=int((at-86400)*1000)
+        with sqlite3.connect(root/'chainlink.sqlite') as db:
+            db.execute('CREATE TABLE ticks (asset TEXT,timestamp INTEGER,value TEXT,PRIMARY KEY(asset,timestamp))')
+            db.executemany('INSERT INTO ticks VALUES (?,?,?)',[('BTC',cutoff-1,'1'),('BTC',cutoff,'2'),('BTC',int(at*1000),'3')])
+        reviews=root/'codex-reviews';reviews.mkdir()
+        old_at=at-31*86400
+        old=dict(status='complete',payload={'at':p.datetime.fromtimestamp(old_at,p.timezone.utc).isoformat()})
+        expired=reviews/(str(uuid.uuid4())+'.json');expired.write_text(json.dumps(old));os.utime(expired,(old_at,old_at))
+        active=reviews/(str(uuid.uuid4())+'.json');active.write_text(json.dumps({**old,'status':'running'}));os.utime(active,(old_at,old_at))
+        recent=reviews/(str(uuid.uuid4())+'.json');recent.write_text(json.dumps(old))
+        for name in ['state.json','codex-latest.json','auth.json','state-backup.json']:(root/name).write_text('preserve')
+        result=p.prune_storage(at,active)
+        assert result=={'removed_ticks':0,'removed_reviews':1}
+        assert not expired.exists() and active.exists() and recent.exists()
+        for name in ['state.json','codex-latest.json','auth.json','state-backup.json']:assert (root/name).read_text()=='preserve'
+        with sqlite3.connect(root/'chainlink.sqlite') as db:assert db.execute('SELECT count(*) FROM ticks').fetchone()[0]==3
+        assert p.prune_storage(at,active)=={'removed_ticks':0,'removed_reviews':0}
     # Closed flag alone or a near-one trading price never establishes a payout.
     f=p.Feed.__new__(p.Feed)
     result={'condition_id':m['condition_id'],'closed':True,'tokens':[{'token_id':'11','winner':False,'price':.999},{'token_id':'22','winner':False,'price':.001}]}

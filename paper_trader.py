@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -68,6 +69,20 @@ def load_state(balance):
     return s
 
 def save_state(s): atomic_json(STATE_FILE,s)
+
+def prune_storage(at=None,active_review=None,history=None):
+    """Retain 24h of observations and 30d of detailed reviews; never touch account/auth files."""
+    at=time.time() if at is None else at
+    removed_ticks=history.prune(int((at-86400)*1000)) if history else 0
+    removed_reviews=0
+    for path in (DATA/'codex-reviews').glob('*.json'):
+        if path==active_review or path.is_symlink() or not re.fullmatch(r'[0-9a-f-]{36}\.json',path.name):continue
+        if path.stat().st_mtime>=at-30*86400:continue
+        review=json.loads(path.read_text())
+        if review.get('status') not in ('complete','error','interrupted','running'):continue
+        if parse_time(review['payload']['at']).timestamp()<at-30*86400:
+            path.unlink();removed_reviews+=1
+    return dict(removed_ticks=removed_ticks,removed_reviews=removed_reviews)
 
 HTTP_BLOCKED_UNTIL={}
 
@@ -146,13 +161,62 @@ def parse_twap(message):
         result.append((asset,stamp,str(value)))
     return result
 
+class TickStore:
+    def __init__(self):
+        from psycopg2.pool import ThreadedConnectionPool
+        self.pool=ThreadedConnectionPool(1,10,os.environ['DATABASE_URL'],connect_timeout=5,options='-c statement_timeout=10000')
+        with self.connection() as db:
+            with db.cursor() as cur:
+                cur.execute('CREATE TABLE IF NOT EXISTS ticks (asset TEXT NOT NULL,timestamp BIGINT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(asset,timestamp))')
+                cur.execute('CREATE INDEX IF NOT EXISTS ticks_time ON ticks(timestamp)')
+                cur.execute('CREATE TABLE IF NOT EXISTS history_migrations (name TEXT PRIMARY KEY)')
+                cur.execute("SELECT 1 FROM history_migrations WHERE name='sqlite-v1'")
+                migrated=cur.fetchone()
+                legacy=DATA/'chainlink.sqlite'
+                if not migrated and legacy.exists():
+                    from psycopg2.extras import execute_values
+                    with sqlite3.connect(legacy.as_uri()+'?mode=ro',uri=True) as old:
+                        rows=old.execute('SELECT asset,timestamp,value FROM ticks').fetchall()
+                    if rows:
+                        execute_values(cur,'INSERT INTO ticks VALUES %s ON CONFLICT DO NOTHING',rows,page_size=1000)
+                        cur.execute('SELECT asset,timestamp,value FROM ticks')
+                        if not set(rows).issubset(set(cur.fetchall())):raise ValueError('History migration verification failed')
+                    cur.execute("INSERT INTO history_migrations VALUES ('sqlite-v1')")
+        atexit.register(self.close)
+
+    def close(self):
+        if not self.pool.closed:self.pool.closeall()
+
+    @contextmanager
+    def connection(self):
+        db=self.pool.getconn()
+        try:
+            with db:yield db
+        finally:self.pool.putconn(db,close=bool(db.closed))
+
+    def append(self,rows):
+        from psycopg2.extras import execute_values
+        with self.connection() as db,db.cursor() as cur:
+            execute_values(cur,'INSERT INTO ticks VALUES %s ON CONFLICT DO NOTHING',rows)
+
+    def window(self,asset,start):
+        with self.connection() as db,db.cursor() as cur:
+            cur.execute('SELECT timestamp,value FROM ticks WHERE asset=%s AND timestamp>=%s ORDER BY timestamp',(asset,int(time.time()//60)*60000-3600000))
+            rows=cur.fetchall()
+            cur.execute('SELECT value FROM ticks WHERE asset=%s AND timestamp=%s',(asset,start))
+            return rows,cur.fetchone()
+
+    def prune(self,cutoff):
+        with self.connection() as db,db.cursor() as cur:
+            cur.execute('DELETE FROM ticks WHERE timestamp<%s',(cutoff,))
+            return cur.rowcount
+
+
 class Chainlink:
     def __init__(self):
-        DATA.mkdir(parents=True,exist_ok=True);self.path=DATA/'chainlink.sqlite';self.error='Waiting for Chainlink TWAP updates'
-        with sqlite3.connect(self.path) as db:
-            db.execute('CREATE TABLE IF NOT EXISTS ticks (asset TEXT, timestamp INTEGER, value TEXT, PRIMARY KEY(asset,timestamp))')
+        self.history=TickStore();self.error='Waiting for Chainlink TWAP updates'
         self.process=subprocess.Popen(['node',str(ROOT/'chainlink.mjs')],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,
-                                      env={k:v for k,v in os.environ.items() if not k.startswith(('KALSHI_','POLYMARKET_','CHAINLINK_'))})
+                                      env={k:v for k,v in os.environ.items() if k!='DATABASE_URL' and not k.startswith(('KALSHI_','POLYMARKET_','CHAINLINK_'))})
         atexit.register(self.close)
         threading.Thread(target=self.collect,daemon=True).start()
 
@@ -163,23 +227,19 @@ class Chainlink:
 
     def collect(self):
         try:
-            with sqlite3.connect(self.path) as db:
-                for line in self.process.stdout:
-                    try:
-                        message=json.loads(line)
-                        if message.get('error'):self.error=message['error'];continue
-                        ticks=parse_twap(message)
-                        if ticks:
-                            db.executemany('INSERT OR IGNORE INTO ticks VALUES (?,?,?)',ticks);db.commit();self.error=None
-                    except Exception as exc:self.error='Chainlink ingestion: '+str(exc)
+            for line in self.process.stdout:
+                try:
+                    message=json.loads(line)
+                    if message.get('error'):self.error=message['error'];continue
+                    ticks=parse_twap(message)
+                    if ticks:self.history.append(ticks);self.error=None
+                except Exception:self.error='Chainlink history write failed'
             self.error='Chainlink reader stopped'
-        except Exception as exc:self.error='Chainlink reader: '+str(exc)
+        except Exception:self.error='Chainlink reader failed'
 
     def underlying(self,asset,m):
         start=int(parse_time(m['open_time']).timestamp()*1000)
-        with sqlite3.connect(self.path) as db:
-            rows=db.execute('SELECT timestamp,value FROM ticks WHERE asset=? AND timestamp>=? ORDER BY timestamp',(asset,int(time.time()//60)*60000-3600000)).fetchall()
-            opening=db.execute('SELECT value FROM ticks WHERE asset=? AND timestamp=?',(asset,start)).fetchone()
+        rows,opening=self.history.window(asset,start)
         bars={}
         for stamp,value in rows:
             minute=stamp//60000*60000
@@ -191,7 +251,7 @@ class Chainlink:
                   history=dict(source='Locally recorded Chainlink TWAP',resolution='1-minute OHLC of received TWAP observations',
                     samples=len(rows),bars=list(bars.values()),first_at=rows[0][0] if rows else None,last_at=rows[-1][0] if rows else None,
                     max_gap_ms=max((b[0]-a[0] for a,b in zip(rows,rows[1:])),default=0),
-                    limitation='No guaranteed backfill or replay; raw received observations persist in chainlink.sqlite'))
+                    limitation='No guaranteed backfill or replay; raw observations retained in PostgreSQL for 24 hours'))
         if rows and opening:data['delta']=str(dec(rows[-1][1])-dec(opening[0]))
         if not rows or time.time()-rows[-1][0]/1000>5:data['error']=self.error or 'Chainlink source data is stale'
         elif not opening:data['error']='Opening tick not recorded: wait for the next market; no opening price is fabricated'
@@ -202,7 +262,7 @@ class BookStream:
         self.market=copy.deepcopy(m);self.books={};self.lock=threading.Lock();self.error='Waiting for WebSocket books'
         self.metadata={side:get_json(CLOB+'/book?'+urllib.parse.urlencode({'token_id':token})) for side,token in m['tokens'].items()}
         for side,body in self.metadata.items():apply_book(copy.deepcopy(m),body,side)
-        self.process=subprocess.Popen(['node',str(ROOT/'chainlink.mjs'),*m['tokens'].values()],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
+        self.process=subprocess.Popen(['node',str(ROOT/'chainlink.mjs'),*m['tokens'].values()],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env={k:v for k,v in os.environ.items() if k!='DATABASE_URL'})
         threading.Thread(target=self.collect,daemon=True).start()
 
     def close(self):
@@ -411,7 +471,7 @@ def codex_decision(payload,cancel):
         schema_file=Path(folder)/'schema.json';output=Path(folder)/'output.json'
         schema_file.write_text(json.dumps(schema))
         cmd=['codex','exec','--model','gpt-6-astra','-c','model_reasoning_effort="high"','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--ignore-user-config','--output-schema',str(schema_file),'-o',str(output),'-']
-        env={k:v for k,v in os.environ.items() if not k.startswith(('KALSHI_','POLYMARKET_','CHAINLINK_'))}
+        env={k:v for k,v in os.environ.items() if k!='DATABASE_URL' and not k.startswith(('KALSHI_','POLYMARKET_','CHAINLINK_'))}
         if cancel.is_set():raise RuntimeError('Review cancelled: trading paused')
         process=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,cwd=folder,env=env,start_new_session=True)
         deadline=time.monotonic()+90
@@ -453,7 +513,7 @@ class Engine:
     def __init__(self,state,settings,feed=None):
         self.state=state;self.config=validate(settings);self.feed=feed or Feed()
         self.snapshots={};self.errors={};self.last_codex=None;self.future=None
-        self.epoch=0;self.review_epoch=0;self.settle_checked={}
+        self.epoch=0;self.review_epoch=0;self.settle_checked={};self.last_cleanup=0
         self.review_lock=threading.RLock();self.cancel_review=threading.Event()
         self.state.setdefault('reviewed_markets',{})
         self.pool=ThreadPoolExecutor(max_workers=1);self.feed_pool=ThreadPoolExecutor(max_workers=7)
@@ -587,6 +647,14 @@ class Engine:
         s['positions'][a]=pos;s['phases'][a]='IN_POSITION';self.emit('entry',**pos,cost=str(cost),reason=d['reason'])
 
     def tick(self):
+        if time.monotonic()-self.last_cleanup>=3600:
+            self.last_cleanup=time.monotonic()
+            try:
+                removed=prune_storage(active_review=getattr(self,'review_path',None) if self.future else None,history=getattr(getattr(self.feed,'chainlink',None),'history',None))
+                self.errors.pop('storage',None)
+                if any(removed.values()):self.emit('storage_cleanup',**removed)
+            except Exception:
+                self.errors['storage']='Storage cleanup failed; next attempt in one hour'
         s=self.state;c=self.config
         assets=list(dict.fromkeys(c['assets']+list(s['positions'])))
         jobs={a:self.feed_pool.submit(self.feed.snapshot,a,c) for a in assets}

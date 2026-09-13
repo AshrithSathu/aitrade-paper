@@ -1,6 +1,6 @@
 FROM cloudflare/cloudflared:latest AS tunnel
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-psycopg2 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @openai/codex@0.149.1
 COPY --from=tunnel /usr/local/bin/cloudflared /usr/local/bin/cloudflared
