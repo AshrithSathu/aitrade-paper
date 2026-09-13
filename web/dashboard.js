@@ -140,7 +140,7 @@ function render(update) {
     "View this market on Polymarket",
   );
   $("reviewpolicy").textContent =
-    "One conditional review starting 15 seconds after opening. The live market must still match the AI plan before entry.";
+    "One conditional review starting 5 seconds after opening. The live market must still match the AI plan before entry.";
   for (const [mode, info] of Object.entries(d.modes)) {
     $("mode" + mode).textContent = info.halted
       ? "Limit reached"

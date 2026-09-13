@@ -88,7 +88,7 @@ class Engine:
                 execution_allowed=not self.state["paused"]
                 and trigger == "market_entry_review",
                 review_assets=list(self.config["assets"] if assets is None else assets),
-                review_policy="One conditional-plan review starting 15 seconds after market opening (60-second dispatch window); WAIT/error skips market; hold entries to official settlement",
+                review_policy="One conditional-plan review starting 5 seconds after market opening (60-second dispatch window); WAIT/error skips market; hold entries to official settlement",
                 strategy={
                     k: v
                     for k, v in self.config.items()
@@ -135,9 +135,9 @@ class Engine:
             and m.get("market_minutes", 15) == int(self.config["market_minutes"])
             and asset not in self.state["positions"]
             and self.state["reviewed_markets"].get(asset) != m["ticker"]
-            and 15
+            and 5
             <= (common.now() - common.parse_time(m["open_time"])).total_seconds()
-            < 15 + 60
+            < 5 + 60
             and self.ready(asset, history=True)
         )
 
@@ -441,18 +441,24 @@ class Engine:
             )
         if adverse_contract_drift is None:
             return reject(f"{side} ask became unavailable")
-        price_limit = common.dec(d["limit_price"])
+        ai_price_limit = common.dec(d["limit_price"])
+        price_limit = min(Decimal(".99"), ai_price_limit * Decimal("1.1"))
         if not 0 < price < 1:
             return reject(f"{side} ask became unavailable")
         if price > price_limit:
             return reject(
-                f"{side} ask rose from ${old_price:.2f} to ${price:.2f}, above the AI maximum of ${price_limit:.2f}"
+                f"{side} ask rose from ${old_price:.2f} to ${price:.2f}, above the buffered maximum of ${price_limit:.2f}"
             )
-        contract_cap = min(contract_limit + Decimal(".01"), price_limit - old_price)
+        contract_cap = min(
+            contract_limit + old_price * Decimal(".1"), price_limit - old_price
+        )
         if adverse_contract_drift > contract_cap:
             return reject(
                 f"{side} ask rose ${adverse_contract_drift:.2f}; maximum allowed was ${contract_cap:.2f}"
             )
+        live_breakeven = price + market.trade_fee(m, Decimal(1), price)
+        if estimated_side <= live_breakeven:
+            return reject("Live ask no longer has positive fee-adjusted edge")
         qty = common.dec(d["quantity"])
         depth = m.get(("yes" if side == "UP" else "no") + "_ask_size_fp")
         if depth is None or common.dec(depth) < qty:
@@ -604,9 +610,9 @@ class Engine:
                 else "REVIEW_USED"
                 if s["reviewed_markets"].get(a) == m["ticker"]
                 else "SKIPPED_WINDOW"
-                if elapsed >= 15 + 60
+                if elapsed >= 5 + 60
                 else "WAIT_REVIEW_TIME"
-                if elapsed < 15
+                if elapsed < 5
                 else "READY_FOR_REVIEW"
                 if self.ready(a, history=True)
                 else "WAIT_DATA"

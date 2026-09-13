@@ -45,7 +45,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 
 - A stopped account stays stopped after restart. An active timed run resumes only until its existing deadline. Each account has its own balance, limits and review history.
 - Start enables a timed session, including waiting for data. AI reviews and entries still require fresh validated data.
-- Reviews start 15 seconds after opening for both durations, with a 60-second dispatch window (15–under 75 seconds) to wait for validated data. Codex returns a short-lived conditional plan; the current BTC price and selected contract ask must remain inside its limits before entry. Missed windows, WAIT decisions and errors skip that market.
+- Reviews start 5 seconds after opening for both durations, with a 60-second dispatch window (5–under 65 seconds) to wait for validated data. Codex returns a short-lived conditional plan; the current BTC price and selected contract ask must remain inside its buffered limits before entry. Missed windows, WAIT decisions and errors skip that market.
 - Codex has a 25-second timeout. Decisions older than 30 seconds are rejected. Pause cancels AI; open trades continue to official settlement.
 - Every scheduled review is labeled with the eventual Up/Down settlement. This includes WAIT decisions, so later analysis can compare skipped opportunities with executed trades.
 - Current markets, open positions, decisions and closed trades link to the matching market on Polymarket for direct comparison.

@@ -529,7 +529,11 @@ def run():
                 asset="BTC",
                 ticker=f.data["BTC"]["ticker"],
                 action=action,
-                estimated_up_probability=".55",
+                estimated_up_probability=".05"
+                if action == "ENTER_DOWN"
+                else ".95"
+                if entering
+                else ".55",
                 quantity=quantity or ("1" if entering else "0"),
                 limit_price=limit_price or (".85" if entering else "0"),
                 valid_for_seconds="30" if entering else "0",
@@ -582,9 +586,9 @@ def run():
                 not e.request_review("manual_account_review") and calls.call_count == 0
             )
             s["paused"] = False
-            fresh(14)
+            fresh(4)
             assert calls.call_count == 0
-            fresh(15)
+            fresh(5)
             assert calls.call_count == 1 and e.future is not None
             assert e.last_codex["payload"]["phases"]["BTC"] == "READY_FOR_REVIEW"
             assert (
@@ -660,20 +664,25 @@ def run():
             s["cash"] = "1000"
             e.snapshots["BTC"]["underlying"]["price"] = "101"
             original = e.payload("market_entry_review")
-            e.snapshots["BTC"]["yes_ask_dollars"] = ".85"
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".94"
             apply(decision(), original)
             assert not s["positions"]
-            assert "UP ask rose $" in s["events"][-1]["reason"]
+            assert "above the buffered maximum" in s["events"][-1]["reason"]
             apply(decision(limit_price=".83"), original)
             assert not s["positions"]
-            assert "above the AI maximum" in s["events"][-1]["reason"]
-            e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
+            assert "above the buffered maximum" in s["events"][-1]["reason"]
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".88"
             apply(decision(), original)
             assert (
                 "BTC" in s["positions"]
-            )  # One tick of response-time drift is absorbed.
+            )  # The agreed 10% contract-price buffer is absorbed.
             s["positions"].clear()
             s["cash"] = "1000"
+            no_live_edge = decision()
+            no_live_edge["estimated_up_probability"] = ".88"
+            apply(no_live_edge, original)
+            assert not s["positions"]
+            assert "positive fee-adjusted edge" in s["events"][-1]["reason"]
             original = e.payload("market_entry_review")
             e.snapshots["BTC"]["underlying"]["price"] = "107"
             e.snapshots["BTC"]["yes_ask_dollars"] = ".79"
