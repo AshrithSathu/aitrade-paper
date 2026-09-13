@@ -171,7 +171,7 @@ def run():
             assert not e.request_review('manual_account_review')
             assert not e.request_review('market_entry_review')
         e.pool.shutdown(wait=True);e.feed_pool.shutdown(wait=True)
-        for bad in [dict(size='NaN'),dict(size='1.001'),dict(daily_loss='1'),dict(codex_interval='60')]:
+        for bad in [dict(assets=['ETH']),dict(assets=['BTC','ETH']),dict(size='NaN'),dict(size='1.001'),dict(daily_loss='1'),dict(codex_interval='60')]:
             try:p.validate({**c,**bad})
             except ValueError:pass
             else:raise AssertionError(bad)

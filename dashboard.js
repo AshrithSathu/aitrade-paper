@@ -1,46 +1,39 @@
 const $=id=>document.getElementById(id);
-const money=v=>v==null?'Unavailable':Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:4});
+const money=v=>v==null?'—':Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const form=$('settings');let loaded=false,inFlight=false;
-$('assets').innerHTML='<fieldset class="wide" style="grid-column:1/-1;border:0;padding:0"><legend>Trade these assets</legend>'+['BTC','ETH','SOL','XRP','DOGE','HYPE','BNB'].map(a=>`<label style="display:inline-flex;align-items:center;gap:6px;margin:8px"><input style="width:auto;margin:0" type="checkbox" name="assets" value="${a}">${a}</label>`).join('')+'</fieldset>';
-const marketPanel=document.createElement('div');marketPanel.className='panel';marketPanel.innerHTML='<h2>All selected markets & underlying data</h2><div class="scroll"><table><thead><tr><th>Asset / phase</th><th>Up / Down asks</th><th>Live underlying</th><th>Recorded opening TWAP</th><th>Delta</th><th>Feed / health</th></tr></thead><tbody id="markets"></tbody></table></div>';
-$('position').closest('.panel').before(marketPanel);
-marketPanel.insertAdjacentHTML('beforeend','<details><summary>Current trading signals</summary><pre id="signals" style="white-space:pre-wrap;max-height:400px;overflow:auto"></pre></details>');
-const reviewPanel=document.createElement('div');reviewPanel.className='panel';reviewPanel.innerHTML='<div class="row"><h2>Codex review</h2><button type="button" id="review">Review now</button></div><p id="reviewstatus" role="status">No review yet.</p><details><summary>Exact Codex input and decisions</summary><pre id="payload" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:450px;overflow:auto"></pre></details><p class="sub">Each completed review is saved under data/polymarket/codex-reviews. Manual reviews require active paper trading and are previews only. One scheduled entry review per market, three minutes after opening. Entries hold to settlement.</p>';
-$('activity').closest('.panel').before(reviewPanel);
-reviewPanel.insertAdjacentHTML('beforeend','<details><summary id="loginstatus">Checking Codex login…</summary><p>Astra · High reasoning</p><button type="button" id="codexlogin">Sign in to Codex</button><pre id="loginoutput" style="white-space:pre-wrap" aria-live="polite"></pre></details>');
-$('codexlogin').onclick=()=>action('codex/login');
-$('trades').closest('.panel').insertAdjacentHTML('beforeend','<a href="/api/history" target="_blank" rel="noopener">View complete event history (JSON)</a>');
+const time=v=>new Date(v).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+const form=$('settings');let loaded=false,inFlight=false,settings=null;
 async function action(path,body={}){
-  try{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);$('saved').textContent=path==='settings'?'Settings saved.':'Action completed.';await refresh()}
-  catch(e){$('saved').textContent=e.message;$('notice').textContent=e.message}
+ try{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);$('saved').textContent=path==='settings'?'Limits saved.':'Done.';await refresh()}
+ catch(e){$('saved').textContent=e.message}
 }
-$('start').onclick=()=>action('start');$('pause').onclick=()=>action('pause');$('review').onclick=()=>action('review');
-form.onsubmit=e=>{e.preventDefault();const data=new FormData(form),body=Object.fromEntries(data);body.assets=data.getAll('assets');action('settings',body)};
+$('start').onclick=()=>action('start');$('pause').onclick=()=>action('pause');$('codexlogin').onclick=()=>action('codex/login');
+form.onsubmit=e=>{e.preventDefault();if(!settings)return;const body={...settings,...Object.fromEntries(new FormData(form)),assets:['BTC']};body.daily_loss=String(-Math.abs(Number(body.daily_loss)));action('settings',body)};
 async function refresh(){
  if(inFlight)return;inFlight=true;
  try{
-  const loginResponse=await fetch('/api/codex/login');if(loginResponse.ok){const login=await loginResponse.json();$('loginoutput').textContent=login.output;$('loginstatus').textContent=login.status;$('codexlogin').hidden=login.authenticated;$('codexlogin').disabled=login.running;$('loginoutput').hidden=login.authenticated;}
-  const r=await fetch('/api/status');if(!r.ok)throw Error('Status unavailable');const d=await r.json(),s=d.state,a=d.account,events=s.events;
-  if(!loaded){Object.entries(d.settings).forEach(([k,v])=>{if(k==='assets')form.querySelectorAll('[name=assets]').forEach(el=>el.checked=v.includes(el.value));else if(form.elements[k])form.elements[k].value=v});loaded=true}
-  $('badge').textContent=s.halted?'Limit reached':d.paused?'Trading paused':'Trading';$('start').disabled=!d.paused||!!s.halted;$('pause').disabled=d.paused;
-  $('notice').textContent=d.error?'Worker paused: '+d.error:d.settings.assets.some(asset=>d.markets[asset]?.underlying?.delta==null)?'Chainlink is not ready. See feed health below; entries require fresh TWAP data and a recorded opening tick.':d.paused?'Trading paused. Chainlink data is available; AI is stopped. Marks and official settlements still update.':'Paper trading with Chainlink 60s TWAP. Settlement uses official Polymarket results.';
+  const r=await fetch('/api/status');if(!r.ok)throw Error('Status unavailable');const d=await r.json(),s=d.state,a=d.account,m=d.markets.BTC,u=m?.underlying;
+  settings=d.settings;
+  if(!loaded){for(const k of ['balance','max_trade','size','daily_loss'])form.elements[k].value=k==='daily_loss'?Math.abs(Number(settings[k])):settings[k];loaded=true}
+  $('badge').textContent=s.halted?'Limit reached':d.paused?'Paused':'Running';$('start').disabled=!d.paused||!!s.halted;$('pause').disabled=d.paused;
+  $('notice').textContent=d.error?'Trading paused: '+d.error:d.paused?'Paused. AI is stopped.':'Paper trading is running. AI reviews each market once.';
   ['cash','equity'].forEach(k=>$(k).textContent=money(a[k]));$('pnl').textContent=money(a.realized_pnl);$('pnl').className=Number(a.realized_pnl)<0?'bad':'good';$('unrealized').textContent=money(a.unrealized_pnl);
-  const m=d.markets[d.settings.assets[0]];
-  if(m){$('ticker').textContent=m.ticker;$('up').textContent=money(m.yes_ask_dollars);$('down').textContent=money(m.no_ask_dollars);$('upbid').textContent='Bid '+money(m.yes_bid_dollars);$('downbid').textContent='Bid '+money(m.no_bid_dollars);$('target').textContent='Recorded opening TWAP '+money(m.floor_strike);$('countdown').textContent=Math.max(0,(Date.parse(m.close_time)-Date.now())/60000).toFixed(1)+' minutes remaining'}
-  $('updated').textContent=d.updated?'Updated '+new Date(d.updated).toLocaleTimeString():'Awaiting feed';
-  $('markets').innerHTML=d.settings.assets.map(asset=>{const m=d.markets[asset],u=m?.underlying||{},age=m?(Date.now()-Date.parse(m.received_at))/1000:null,error=d.errors[asset]||u.error;return `<tr><td>${esc(asset)}<br>${esc(s.phases[asset]||'WAIT_DATA')}</td><td>${money(m?.yes_ask_dollars)} / ${money(m?.no_ask_dollars)}</td><td>${money(u.price)}</td><td>${money(u.open15m)}</td><td>${money(u.delta)}</td><td>${esc(error||u.source||'Waiting')}<br>${age==null?'No quote':age.toFixed(1)+'s since quote'}<br>${u.source_at?'Chainlink '+esc(new Date(u.source_at).toLocaleTimeString()):'No Chainlink timestamp'}<br>${esc(u.history?.error?'History: '+u.history.error:u.history?'TWAP history: '+u.history.samples+' observations in '+u.history.bars.length+' minute bars':'History pending')}</td></tr>`}).join('');
-  $('signals').textContent=JSON.stringify(Object.fromEntries(Object.entries(d.markets).map(([a,m])=>[a,{book_source:m.book_source,signals:m.signals}])),null,2);
-  const positions=[...Object.values(s.positions).map(p=>({...p,status:'Open'})),...Object.values(s.pending).map(p=>({...p,status:'Settlement pending'}))];
-  $('position').innerHTML=positions.length?positions.map(p=>`<div class="event"><strong>${esc(p.asset)} ${esc(p.side)} · ${esc(p.status)}</strong><br>${esc(p.ticker)}<br>${esc(p.size)} contracts · Entry ${money(p.entry)} · Mark ${money(p.last_mark)}<br><span class="sub">Mark time ${esc(p.mark_at||'unknown')}</span></div>`).join(''):'No open or pending positions.';
-  $('performance').textContent=`Live PnL ${money(a.live_pnl)} · ${a.trades} closed · ${a.wins} wins / ${a.losses} losses · Average profit ${money(a.average_profit)} · Average loss ${money(a.average_loss)}`;
-  const used=Math.max(0,-Number(a.realized_pnl)),limit=Math.abs(Number(d.settings.daily_loss));$('lossbudget').textContent=limit?money(used)+' / '+money(limit):'Disabled';$('lossbar').style.width=(limit?Math.min(100,used/limit*100):0)+'%';
-  const exits=events.filter(e=>e.kind==='exit');$('trades').innerHTML=exits.length?exits.slice().reverse().map(e=>`<tr><td>${esc(new Date(e.at).toLocaleString())}</td><td>${esc(e.asset)} ${esc(e.side)}</td><td>${esc(e.size)}</td><td>${money(e.entry)}</td><td>${money(e.exit)}</td><td class="${Number(e.pnl)<0?'bad':'good'}">${money(e.pnl)}</td><td>${esc(e.reason)}</td></tr>`).join(''):'<tr><td colspan="7">No closed trades yet.</td></tr>';
-  $('activity').innerHTML=events.length?events.slice(-30).reverse().map(e=>`<div class="event"><span class="sub">${esc(new Date(e.at).toLocaleTimeString())}</span> <strong>${esc(e.decision||e.kind)}</strong> ${esc(e.asset||'')} ${esc(e.side||'')}<br>${esc(e.reason||e.ticker||'')}</div>`).join(''):'No activity yet.';
-  $('reviewstatus').textContent=d.codex?d.codex.status+' · '+(d.codex.response?.reason||'Reviewing the complete snapshot…'):'No review yet. Review now sends the current complete snapshot.';
-  $('payload').textContent=d.codex?JSON.stringify({input:d.codex.payload,output:d.codex.response},null,2):'No payload sent yet.';
-  $('review').disabled=d.paused||d.busy||d.codex?.status==='running';
- }catch(e){$('badge').textContent='Disconnected';$('notice').textContent='Dashboard disconnected. Check that python3 dashboard.py is running.'}
+  $('window').textContent=m?time(m.open_time)+' – '+time(m.close_time):'Waiting for market';
+  $('up').textContent=money(m?.yes_ask_dollars);$('down').textContent=money(m?.no_ask_dollars);
+  $('current').textContent='Bitcoin: '+money(u?.price);$('opening').textContent='Opening: '+money(u?.open15m);$('change').textContent='Change: '+money(u?.delta);
+  $('countdown').textContent=m?Math.max(0,(Date.parse(m.close_time)-Date.now())/60000).toFixed(1)+' min left':'—';
+  const error=d.errors.BTC||u?.error,stale=!m||Date.now()-Date.parse(m.received_at)>5000||!u?.source_at||Date.now()-Date.parse(u.source_at)>5000;
+  $('feed').textContent=error?'Prices unavailable: '+error:stale?'Waiting for fresh prices':u.open15m==null?'Waiting for opening price':'Prices live · Updated '+time(u.source_at);
+  const positions=[...Object.values(s.positions).map(p=>({...p,status:'Open'})),...Object.values(s.pending).map(p=>({...p,status:'Waiting for settlement'}))];
+  $('position').innerHTML=positions.length?positions.map(p=>`<div class="event"><strong>${esc(p.side)} · ${esc(p.status)}</strong><br>${esc(p.size)} contracts · Entry ${money(p.entry)} · Current value per contract ${money(p.last_mark)}</div>`).join(''):'No open trade.';
+  $('performance').textContent=`${a.trades} closed trades · ${a.wins} wins · ${a.losses} losses`;
+  const used=Math.max(0,-Number(a.realized_pnl)),limit=Math.abs(Number(settings.daily_loss));$('lossbudget').textContent=limit?money(used)+' used of '+money(limit):'No loss limit';$('lossbar').style.width=(limit?Math.min(100,used/limit*100):0)+'%';
+  const exits=s.events.filter(e=>e.kind==='exit');$('trades').innerHTML=exits.length?exits.slice().reverse().map(e=>`<tr><td>${esc(new Date(e.at).toLocaleString())}</td><td>${esc(e.side)}</td><td>${esc(e.size)}</td><td>${money(e.entry)}</td><td>${money(e.exit)}</td><td class="${Number(e.pnl)<0?'bad':'good'}">${money(e.pnl)}</td></tr>`).join(''):'<tr><td colspan="6">No closed trades yet.</td></tr>';
+  const review=d.codex;
+  $('reviewstatus').textContent=review?.status==='running'?'AI is reviewing this market…':review?.response?.reason||'No decision yet.';
+  $('reviewtime').textContent=review?.payload?.at?'Last review: '+new Date(review.payload.at).toLocaleString():'';
+  const loginResponse=await fetch('/api/codex/login');if(loginResponse.ok){const login=await loginResponse.json();$('loginstatus').textContent=login.status;$('codexlogin').hidden=login.authenticated;$('codexlogin').disabled=login.running||!d.paused;$('loginoutput').textContent=login.authenticated?'':login.output;}
+ }catch(e){$('badge').textContent='Disconnected';$('notice').textContent='Cannot reach the server. Displayed values may be out of date.';$('start').disabled=true;$('pause').disabled=true}
  finally{inFlight=false}
 }
 refresh();setInterval(refresh,1500);

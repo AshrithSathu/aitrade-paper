@@ -148,6 +148,7 @@ if __name__=='__main__':
             settings.update({k:v for k,v in previous.items() if k in settings})
             settings['interval']=p.DEFAULTS['interval']
             settings['assets']=[previous.get('series','KXBTC15M')[2:-3]]
+    settings['assets']=['BTC']
     engine=p.Engine(p.load_state(settings['balance']),settings)
     engine.pause()
     p.save_state(engine.state);p.atomic_json(p.SETTINGS_FILE,settings);publish()

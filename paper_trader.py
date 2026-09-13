@@ -45,8 +45,8 @@ def atomic_json(path, value):
 def validate(values):
     if not isinstance(values,dict) or set(values)!=set(DEFAULTS): raise ValueError('Invalid settings fields')
     assets=values['assets']
-    if not isinstance(assets,list) or not assets or any(a not in ASSETS for a in assets) or len(set(assets))!=len(assets):
-        raise ValueError('Select one or more unique supported assets')
+    if assets!=['BTC']:
+        raise ValueError('Only BTC is enabled')
     try: n={k:dec(v) for k,v in values.items() if k!='assets'}
     except (InvalidOperation,TypeError): raise ValueError('Enter valid decimal numbers') from None
     if not all(v.is_finite() for v in n.values()): raise ValueError('Numbers must be finite')
