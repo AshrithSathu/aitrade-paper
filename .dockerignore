@@ -1,8 +1,10 @@
 *
 !Dockerfile
-!paper_trader.py
-!dashboard.py
-!dashboard.html
-!dashboard.js
-!chainlink.mjs
-!railway_start.py
+!backend/
+!backend/*.py
+!web/
+!web/*
+!feeds/
+!feeds/*.mjs
+!infra/
+!infra/*.py

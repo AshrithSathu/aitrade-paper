@@ -2,8 +2,10 @@
   "name": "aitrade-paper",
   "private": true,
   "scripts": {
-    "start": "python3 dashboard.py",
-    "test": "python3 test_dashboard.py"
+    "start": "python3 -m backend.dashboard",
+    "test": "python3 -m tests.test_dashboard",
+    "format": "uvx ruff@0.16.7 format backend tests infra && bunx prettier@3.8.1 --write web feeds",
+    "check": "uvx ruff@0.16.7 check backend tests infra && uvx ruff@0.16.7 format --check backend tests infra && bunx prettier@3.8.1 --check web feeds && node --check web/dashboard.js && node --check feeds/chainlink.mjs"
   },
   "devDependencies": {
     "railway": "^3.11.0"
