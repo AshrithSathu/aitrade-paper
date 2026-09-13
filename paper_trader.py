@@ -106,11 +106,11 @@ def quote(m,side,kind='ask'):
     if not n.is_finite() or not 0<=n<=1: raise ValueError('Invalid quote')
     return n
 
-def apply_book(m,body,side):
+def apply_book(m,body,side,require_fresh=True):
     token=m['tokens'][side]
     if body.get('market')!=m['condition_id'] or body.get('asset_id')!=token:raise ValueError('Orderbook token/market mismatch')
     stamp=dec(body['timestamp'])/1000
-    if not stamp.is_finite() or not -2<=dec(time.time())-stamp<=5:raise ValueError('Orderbook source timestamp is stale or invalid')
+    if not stamp.is_finite() or stamp<=0 or dec(time.time())-stamp < -2 or (require_fresh and dec(time.time())-stamp>5):raise ValueError('Orderbook source timestamp is stale or invalid')
     prefix='yes' if side=='UP' else 'no'
     for kind,levels in [('bid',body['bids']),('ask',body['asks'])]:
         totals={}
@@ -282,7 +282,7 @@ class BookStream:
     def __init__(self,m):
         self.market=copy.deepcopy(m);self.books={};self.lock=threading.Lock();self.error='Waiting for WebSocket books'
         self.metadata={side:get_json(CLOB+'/book?'+urllib.parse.urlencode({'token_id':token})) for side,token in m['tokens'].items()}
-        for side,body in self.metadata.items():apply_book(copy.deepcopy(m),body,side)
+        for side,body in self.metadata.items():apply_book(copy.deepcopy(m),body,side,require_fresh=False)
         self.process=subprocess.Popen(['node',str(ROOT/'chainlink.mjs'),*m['tokens'].values()],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env={k:v for k,v in os.environ.items() if k!='DATABASE_URL'})
         threading.Thread(target=self.collect,daemon=True).start()
 
@@ -319,7 +319,7 @@ class BookStream:
                     body[key]=[row for row in body[key] if dec(row['price'])!=price]
                     if size:body[key].append({'price':str(price),'size':str(size)})
                 body['timestamp']=event['timestamp']
-            checked=apply_book(copy.deepcopy(self.market),body,side)
+            checked=apply_book(copy.deepcopy(self.market),body,side,require_fresh=False)
             if kind=='price_change':
                 for key,qkind in [('best_bid','bid'),('best_ask','ask')]:
                     if change.get(key) and dec(change[key])>=0 and quote(checked,side,qkind)!=dec(change[key]):raise ValueError('Book delta out of sync')
@@ -701,17 +701,24 @@ class Engine:
             return True
         return False
 
-    def ready(self,asset,history=False):
+    def readiness_error(self,asset,history=False):
         m=self.snapshots.get(asset)
-        if not m or asset in self.errors or not -2<=(now()-parse_time(m['received_at'])).total_seconds()<=5 or minutes_left(m)<=0:return False
+        if asset in self.errors:return self.errors[asset]
+        if not m:return 'Waiting for market data'
+        if not -2<=(now()-parse_time(m['received_at'])).total_seconds()<=5:return 'Waiting for fresh Polymarket books'
+        if minutes_left(m)<=0:return 'Waiting for the next market'
         if history:
             u=m.get('underlying',{})
-            if u.get('price') is None or not u.get('source_at') or not -2<=(now()-parse_time(u['source_at'])).total_seconds()<=5:return False
-            h=u.get('history')
-            if u.get('error') or u.get('opening_price') is None or not h or h.get('samples',0)<2:return False
+            if u.get('price') is None or not u.get('source_at') or not -2<=(now()-parse_time(u['source_at'])).total_seconds()<=5:return 'Waiting for live Chainlink TWAP'
+            if u.get('error'):return u['error']
+            if u.get('opening_price') is None:return 'Opening tick missing; waiting for the next market'
+            if u.get('history',{}).get('samples',0)<2:return 'Collecting Chainlink history'
             ch=m.get('contract_history',{})
-            if ch.get('error') or not all(ch.get('outcomes',{}).get(side) for side in ['UP','DOWN']):return False
-        return True
+            if ch.get('error') or not all(ch.get('outcomes',{}).get(side) for side in ['UP','DOWN']):return 'Waiting for Polymarket contract history'
+        return None
+
+    def ready(self,asset,history=False):
+        return self.readiness_error(asset,history) is None
 
     def apply_decision(self,d,original):
         self.expire_run()

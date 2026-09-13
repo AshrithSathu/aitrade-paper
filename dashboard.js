@@ -38,7 +38,7 @@ function render(update){
    $('lossbudget'+minutes).textContent=limit?money(used)+' used of '+money(limit):'No loss limit';$('lossbar'+minutes).style.width=(limit?Math.min(100,used/limit*100):0)+'%';
   }
   $('badge').textContent=s.halted?'Limit reached':d.paused?'Paused':'Running';
-  $('notice').textContent=d.error?'Trading paused: '+d.error:d.paused?(s.stop_reason?s.stop_reason+'. AI is stopped.':'Paused. AI is stopped.'):'Paper trading is running. '+(s.run_until?'Stops at '+new Date(s.run_until).toLocaleString()+'. ':'')+'AI reviews each market once.';
+  $('notice').textContent=d.error?'Trading paused: '+d.error:d.paused?(s.stop_reason?s.stop_reason+'. AI is stopped.':'Paused. AI is stopped.'):(d.waiting_for?'Session started. '+d.waiting_for+'. No entry until data is ready. ':'Paper trading is running. ')+(s.run_until?'Stops at '+new Date(s.run_until).toLocaleString()+'. ':'')+'AI reviews each market once.';
   ['cash','equity'].forEach(k=>$(k).textContent=money(a[k]));$('pnl').textContent=money(a.realized_pnl);$('pnl').className=Number(a.realized_pnl)<0?'bad':'good';$('unrealized').textContent=money(a.unrealized_pnl);
   $('window').textContent=m?time(m.open_time)+' – '+time(m.close_time):'Waiting for market';
   $('up').textContent=money(m?.yes_ask_dollars);$('down').textContent=money(m?.no_ask_dollars);

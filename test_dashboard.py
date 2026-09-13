@@ -46,6 +46,11 @@ def run():
         else:raise AssertionError(bad)
     stream=p.BookStream.__new__(p.BookStream)
     stream.market=copy.deepcopy(m);stream.books={};stream.metadata={'UP':body};stream.error=None
+    stream.update({**body,'timestamp':str(int(time.time()*1000)-10000),'event_type':'book'})
+    assert stream.books and stream.error is None
+    try:p.apply_book(copy.deepcopy(m),stream.books['UP'],'UP')
+    except ValueError:pass
+    else:raise AssertionError('Stale stream book became tradable')
     stream.update({**body,'event_type':'book'})
     stream.update({'event_type':'price_change','market':m['condition_id'],'timestamp':body['timestamp'],
         'price_changes':[{'asset_id':'11','side':'BUY','price':'.4','size':'0','best_bid':'.1','best_ask':'.5'}]})
@@ -245,7 +250,7 @@ def run():
         for minutes in ('5','15'):
             settings=dict(p.DEFAULTS,market_minutes=minutes)
             engine=p.Engine(p.initial_state('1000'),settings,FakeFeed(),data_dir=Path(folder)/minutes)
-            engine.ready=lambda *args,**kwargs:True
+            engine.ready=lambda *args,**kwargs:False
             dashboard.engines[minutes]=engine;dashboard.views[minutes]={'busy':False,'error':None}
             dashboard.settings_by[minutes]=settings;dashboard.publish(engine,dashboard.views[minutes])
         server=ThreadingHTTPServer(('127.0.0.1',0),dashboard.Handler)

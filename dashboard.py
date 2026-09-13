@@ -60,7 +60,7 @@ def publish(engine,view):
 def status(minutes):
     engine=engines[minutes]
     data=copy.deepcopy(views[minutes])
-    data.update(settings=settings_by[minutes],paused=engine.state['paused'])
+    data.update(settings=settings_by[minutes],paused=engine.state['paused'],waiting_for=engine.readiness_error('BTC',history=True))
     data['modes']={m:{k:e.state.get(k) for k in ('paused','halted','run_hours','profit_target_percent')} for m,e in engines.items()}
     data['state']['events']=data['state']['events'][-300:]
     return data
@@ -145,8 +145,6 @@ class Handler(BaseHTTPRequestHandler):
                     if view['error']:raise ValueError('Resolve the worker error before starting')
                     if s['halted']:raise ValueError(s['halted'])
                     if not idle.wait_for(lambda:not view['busy'],timeout=30):raise ValueError('Wait for the current data refresh')
-                    for asset in engine.config['assets']:
-                        if not engine.ready(asset,history=True):raise ValueError(f'{asset}: fresh Polymarket books, Chainlink TWAP, opening tick and history must be available')
                     if body.get('resume_run') is True:
                         if not s.get('run_until') or p.now()>=p.parse_time(s['run_until']):raise ValueError('The previous run has ended')
                         s['paused']=False;engine.epoch+=1;engine.expire_run()
