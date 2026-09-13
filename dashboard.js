@@ -20,6 +20,7 @@ for(const minutes of ['5','15']){
 
 function render(update){
   latest=update;
+  for(const minutes of ['5','15'])$('limits'+minutes).hidden=minutes!==selectedMinutes;
   const d=update.accounts[selectedMinutes],s=d.state,a=d.account,m=d.markets.BTC,u=m?.underlying;
   const settings=d.settings;
   $('markettitle').textContent='Bitcoin · '+selectedMinutes+' minutes';
