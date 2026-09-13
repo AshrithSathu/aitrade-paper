@@ -34,7 +34,7 @@ AI chooses UP, DOWN or WAIT and the quantity/maximum entry price. WAIT, errors, 
 
 AI decisions expire 30 seconds after their input snapshot. Before entry, code rechecks current market/position identity, freshness, AI price limit, displayed size, venue minimum quantity/tick and account budgets. No order waits around for a later fill.
 
-Pause blocks entries and invalidates in-flight trading decisions. Marks and official settlement still update. Manual Review now is an additional preview-only call; it neither trades nor consumes the scheduled attempt. Boot always starts paused. Old `codex_interval` settings are discarded on startup.
+Pause stops the running Codex process and blocks all AI reviews. Marks and official settlement still update. Manual Review now is available only while paper trading is active and is an additional preview-only call; it neither trades nor consumes the scheduled attempt. Boot always starts paused. Old `codex_interval` settings are discarded on startup.
 
 ## Data and warm-up
 

@@ -6,6 +6,7 @@ import copy
 import json
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -253,7 +254,7 @@ def account(s):
                 average_profit=str(dec(s['gross_profit'])/s['wins']) if s['wins'] else None,
                 average_loss=str(dec(s['gross_loss'])/s['losses']) if s['losses'] else None)
 
-def codex_decision(payload):
+def codex_decision(payload,cancel):
     item={'type':'object','properties':{
         'asset':{'type':'string'},'ticker':{'type':'string'},
         'action':{'type':'string','enum':['ENTER_UP','ENTER_DOWN','WAIT']},
@@ -278,8 +279,24 @@ def codex_decision(payload):
         schema_file.write_text(json.dumps(schema))
         cmd=['codex','exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--ignore-user-config','--output-schema',str(schema_file),'-o',str(output),'-']
         env={k:v for k,v in os.environ.items() if not k.startswith(('KALSHI_','POLYMARKET_','CHAINLINK_'))}
-        result=subprocess.run(cmd,input=prompt,text=True,capture_output=True,cwd=folder,timeout=90,env=env)
-        if result.returncode: raise RuntimeError('Codex CLI failed: '+result.stderr[-600:])
+        if cancel.is_set():raise RuntimeError('Review cancelled: trading paused')
+        process=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,cwd=folder,env=env,start_new_session=True)
+        deadline=time.monotonic()+90
+        try:
+            first=True
+            while True:
+                if cancel.is_set():raise RuntimeError('Review cancelled: trading paused')
+                if time.monotonic()>=deadline:raise RuntimeError('Codex review timed out')
+                try:
+                    _,stderr=process.communicate(input=prompt if first else None,timeout=.1)
+                    break
+                except subprocess.TimeoutExpired:first=False
+        finally:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            process.wait()
+        if cancel.is_set():raise RuntimeError('Review cancelled: trading paused')
+        if process.returncode:raise RuntimeError('Codex CLI failed: '+stderr[-600:])
         value=json.loads(output.read_text())
         validate_decisions(value)
         return value
@@ -304,6 +321,7 @@ class Engine:
         self.state=state;self.config=validate(settings);self.feed=feed or Feed()
         self.snapshots={};self.errors={};self.last_codex=None;self.future=None
         self.epoch=0;self.review_epoch=0;self.settle_checked={}
+        self.review_lock=threading.RLock();self.cancel_review=threading.Event()
         self.state.setdefault('reviewed_markets',{})
         self.pool=ThreadPoolExecutor(max_workers=1);self.feed_pool=ThreadPoolExecutor(max_workers=7)
         if (DATA/'codex-latest.json').exists():
@@ -331,8 +349,20 @@ class Engine:
             self.state['reviewed_markets'].get(asset)!=m['ticker'] and
             180<=(now()-parse_time(m['open_time'])).total_seconds()<240 and self.ready(asset,history=True))
 
+    def pause(self):
+        with self.review_lock:
+            self.state['paused']=True;self.epoch+=1
+            self.cancel_review.set()
+            if self.future:
+                self.future.cancel()
+                try:self.future.result(timeout=5)
+                except Exception:pass
+
     def request_review(self,trigger):
-        if self.future:return False
+        with self.review_lock:return self._request_review(trigger)
+
+    def _request_review(self,trigger):
+        if self.state['paused'] or self.future:return False
         if trigger=='market_entry_review':
             if self.state['paused'] or self.state['halted'] or self.limits():return False
             assets=[a for a in self.config['assets'] if self.review_due(a)]
@@ -346,7 +376,8 @@ class Engine:
         self.review_epoch=self.epoch
         self.review_path=DATA/'codex-reviews'/(str(uuid.uuid4())+'.json')
         atomic_json(self.review_path,self.last_codex);atomic_json(DATA/'codex-latest.json',self.last_codex)
-        self.future=self.pool.submit(codex_decision,self.last_codex['payload'])
+        self.cancel_review=threading.Event()
+        self.future=self.pool.submit(codex_decision,self.last_codex['payload'],self.cancel_review)
         return True
 
     def complete_review(self):

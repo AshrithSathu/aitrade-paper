@@ -1,6 +1,9 @@
 """Deterministic paper-engine scenarios; never changes the real paper account."""
 import copy
 import tempfile
+import sys
+import threading
+import subprocess
 from pathlib import Path
 from datetime import timedelta
 from unittest.mock import patch
@@ -81,6 +84,7 @@ def run():
         def apply(d,original=None):e.apply_decision(d,original or e.payload('market_entry_review'))
         with patch.object(p,'now',side_effect=lambda:clock[0]),patch.object(e.pool,'submit',side_effect=lambda *args:Future()) as calls:
             fresh(180);assert calls.call_count==0 and s['paused']
+            assert not e.request_review('manual_account_review') and calls.call_count==0
             s['paused']=False;fresh(179);assert calls.call_count==0
             fresh(180);assert calls.call_count==1 and e.future is not None
             assert p.load_state('1000')['reviewed_markets']['BTC']==f.data['BTC']['ticker']
@@ -126,6 +130,20 @@ def run():
             n=calls.call_count;fresh(200);assert calls.call_count==n
             s['paused']=True;fresh(900);ticker=next(iter(s['pending']));f.results[ticker]={'UP':'1','DOWN':'0'}
             e.settle_checked.clear();fresh(901);assert s['trades']==2 and s['losses']==1
+        # A real local subprocess stands in for Codex; pause must stop it and block previews.
+        launched=threading.Event();processes=[];popen=subprocess.Popen
+        def fake_codex(*args,**kwargs):
+            process=popen([sys.executable,'-c','import time; time.sleep(60)'],**kwargs)
+            processes.append(process);launched.set();return process
+        s['paused']=False
+        with patch.object(p.subprocess,'Popen',side_effect=fake_codex):
+            assert e.request_review('manual_account_review')
+            assert launched.wait(3)
+            e.pause()
+            assert processes[0].poll() is not None and e.future.done()
+            e.complete_review()
+            assert not e.request_review('manual_account_review')
+            assert not e.request_review('market_entry_review')
         e.pool.shutdown(wait=True);e.feed_pool.shutdown(wait=True)
         for bad in [dict(size='NaN'),dict(size='1.001'),dict(daily_loss='1'),dict(codex_interval='60')]:
             try:p.validate({**c,**bad})

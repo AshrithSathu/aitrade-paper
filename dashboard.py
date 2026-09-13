@@ -53,7 +53,7 @@ def worker():
             engine.tick()
             with lock:view.update(error=None,updated=p.now().isoformat())
         except Exception as exc:
-            engine.state['paused']=True
+            engine.pause()
             with lock:view['error']=str(exc)
         finally:
             with lock:
@@ -95,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not s['paused'] or engine.future or login['running']:raise ValueError('Pause and wait for the current review or login')
                     login.update(running=True,output='Starting separate cloud Codex login...')
                     threading.Thread(target=codex_login,daemon=True).start()
-                elif self.path=='/api/pause':s['paused']=True;engine.epoch+=1
+                elif self.path=='/api/pause':engine.pause()
                 elif self.path=='/api/start':
                     if view['error']:raise ValueError('Resolve the worker error before starting')
                     if s['halted']:raise ValueError(s['halted'])
@@ -105,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
                     s['paused']=False;engine.epoch+=1
                 elif self.path=='/api/review':
                     if not idle.wait_for(lambda:not view['busy'],timeout=30) or engine.future:raise ValueError('A feed update or Codex review is running. Try again shortly.')
-                    engine.request_review('manual_account_review')
+                    if not engine.request_review('manual_account_review'):raise ValueError('Resume paper trading before requesting an AI review')
                 elif self.path=='/api/settings':
                     if not idle.wait_for(lambda:not view['busy'],timeout=30) or not s['paused'] or engine.future or s['positions'] or s['pending']:
                         raise ValueError('Pause, wait for open positions/settlements and the current review to finish, then save.')
@@ -136,9 +136,9 @@ if __name__=='__main__':
             settings['interval']=p.DEFAULTS['interval']
             settings['assets']=[previous.get('series','KXBTC15M')[2:-3]]
     engine=p.Engine(p.load_state(settings['balance']),settings)
-    engine.state['paused']=True
+    engine.pause()
     p.save_state(engine.state);p.atomic_json(p.SETTINGS_FILE,settings);publish()
     threading.Thread(target=worker,daemon=True).start()
     print('Paper console: http://127.0.0.1:8765',flush=True)
     try:ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
-    except KeyboardInterrupt:engine.state['paused']=True
+    except KeyboardInterrupt:engine.pause()
