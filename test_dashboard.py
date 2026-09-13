@@ -13,7 +13,7 @@ class FakeFeed:
     def __init__(self):
         self.data={a:dict(asset=a,ticker=f'{a.lower()}-updown-15m-1789263000',close_time=(p.now()+timedelta(minutes=4)).isoformat(),
             received_at=p.now().isoformat(),yes_ask_dollars='0.80',no_ask_dollars='0.22',yes_bid_dollars='0.79',no_bid_dollars='0.20',
-            underlying=dict(price='101',open15m='100',delta='1',source='fixture')) for a in ['BTC','ETH']}
+            underlying=dict(price='101',opening_price='100',delta='1',source='fixture')) for a in ['BTC','ETH']}
         self.results={};self.failed=set()
     def snapshot(self,a,c):
         if a in self.failed:raise OSError('feed unavailable')
@@ -31,6 +31,8 @@ def run():
     raw=dict(slug='btc-updown-15m-1789263000',conditionId='0x'+'a'*64,eventStartTime='2026-09-13T01:30:00Z',endDate='2026-09-13T01:45:00Z',
         outcomes='["Down","Up"]',clobTokenIds='["22","11"]',description='fixture',resolutionSource='https://data.chain.link/streams/btc-usd-twap-60s-streams',
         cryptoMarketConfig={'twapLookbackSeconds':60,'twapEnabled':True})
+    five={**raw,'slug':'btc-updown-5m-1789263000','endDate':'2026-09-13T01:35:00Z'}
+    assert p.parse_market(five,'BTC')['market_minutes']==5
     m=p.parse_market(raw,'BTC');assert m['tokens']=={'DOWN':'22','UP':'11'}
     try:p.parse_market({**raw,'resolutionSource':'https://example.com/spot'},'BTC')
     except ValueError:pass
@@ -95,8 +97,8 @@ def run():
             db.execute('CREATE TABLE ticks (asset TEXT,timestamp INTEGER,value TEXT,PRIMARY KEY(asset,timestamp))')
             db.executemany('INSERT INTO ticks VALUES (?,?,?)',ticks)
         opening=p.datetime.fromtimestamp(stamp/1000,p.timezone.utc).isoformat()
-        u=stream.underlying('BTC',{'open_time':opening});assert u['open15m']==ticks[0][2] and u['history']['samples']==1
-        assert stream.underlying('BTC',{'open_time':(p.parse_time(opening)-timedelta(seconds=1)).isoformat()})['open15m'] is None
+        u=stream.underlying('BTC',{'open_time':opening});assert u['opening_price']==ticks[0][2] and u['history']['samples']==1
+        assert stream.underlying('BTC',{'open_time':(p.parse_time(opening)-timedelta(seconds=1)).isoformat()})['opening_price'] is None
     # Retention only expires old prices/reviews, preserving boundaries and account/login files.
     import os,uuid
     with tempfile.TemporaryDirectory() as folder,patch.object(p,'DATA',Path(folder)):
@@ -196,7 +198,7 @@ def run():
         launched=threading.Event();processes=[];popen=subprocess.Popen
         def fake_codex(*args,**kwargs):
             assert args[0][args[0].index('--model')+1]=='gpt-6-astra'
-            assert 'model_reasoning_effort="high"' in args[0]
+            assert 'model_reasoning_effort="low"' in args[0]
             process=popen([sys.executable,'-c','import time; time.sleep(60)'],**kwargs)
             processes.append(process);launched.set();return process
         s['paused']=False
@@ -222,6 +224,19 @@ def run():
             try:p.validate_decisions({'decisions':actions,'reason':'bad'})
             except ValueError:pass
             else:raise AssertionError('Invalid actions accepted')
+    with tempfile.TemporaryDirectory() as folder:
+        five=p.Engine(p.initial_state('1000'),dict(p.DEFAULTS,market_minutes='5'),FakeFeed(),data_dir=Path(folder)/'5m')
+        fifteen=p.Engine(p.initial_state('1000'),p.DEFAULTS,FakeFeed(),data_dir=Path(folder)/'15m')
+        five.state['paused']=False;fifteen.state['paused']=False
+        t=p.now();five.snapshots={'BTC':dict(market_minutes=5,ticker='btc-updown-5m-1789263000',open_time=(t-timedelta(seconds=60)).isoformat())}
+        with patch.object(p,'now',return_value=t),patch.object(five,'ready',return_value=True),patch.object(five.pool,'submit',return_value=Future()):
+            assert five.request_review('market_entry_review')
+            assert not fifteen.state['reviewed_markets'] and fifteen.future is None
+            assert (Path(folder)/'5m'/'codex-latest.json').exists()
+            assert not (Path(folder)/'15m'/'codex-latest.json').exists()
+            assert five.last_codex['payload']['strategy']['market_minutes']==5
+            five.pause();assert not fifteen.state['paused']
+        for engine in (five,fifteen):engine.pool.shutdown();engine.feed_pool.shutdown()
     from urllib.error import HTTPError
     with patch.object(p.urllib.request,'urlopen',side_effect=HTTPError('https://example.test/book',403,'Forbidden',{},None)) as request:
         for _ in range(2):
