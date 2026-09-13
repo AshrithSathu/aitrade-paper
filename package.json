@@ -1,0 +1,8 @@
+{
+  "name": "aitrade-paper",
+  "private": true,
+  "scripts": {
+    "start": "python3 dashboard.py",
+    "test": "python3 test_dashboard.py"
+  }
+}

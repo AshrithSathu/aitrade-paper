@@ -1,0 +1,5 @@
+data/
+__pycache__/
+.env
+.secrets/
+node_modules/
