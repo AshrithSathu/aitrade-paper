@@ -250,8 +250,8 @@ def run():
             dashboard.settings_by[minutes]=settings;dashboard.publish(engine,dashboard.views[minutes])
         server=ThreadingHTTPServer(('127.0.0.1',0),dashboard.Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        def post(action,minutes):
-            req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/{action}?minutes={minutes}',data=b'{}',headers={'Host':'127.0.0.1:8765','Content-Type':'application/json'})
+        def post(action,minutes,body=None):
+            req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/{action}?minutes={minutes}',data=json.dumps(body or {}).encode(),headers={'Host':'127.0.0.1:8765','Content-Type':'application/json'})
             with urllib.request.urlopen(req) as response:assert response.status==200
         try:
             dashboard.login.update(checked_at=dashboard.time.monotonic(),authenticated=True)
@@ -268,6 +268,14 @@ def run():
             post('start','15');post('pause','5');assert dashboard.engines['5'].state['paused'] and not dashboard.engines['15'].state['paused']
             post('pause','15');assert dashboard.engines['15'].state['paused']
             assert all(e.future is None for e in dashboard.engines.values())
+            for minutes,balance,maximum in [('5','1200','8'),('15','1500','12')]:
+                post('settings',minutes,dict(p.DEFAULTS,market_minutes=minutes,balance=balance,max_trade=maximum))
+            for minutes,balance,maximum in [('5','1200','8'),('15','1500','12')]:
+                engine=dashboard.engines[minutes]
+                assert engine.state['cash']==balance and engine.state['initial_balance']==balance
+                assert engine.config['max_trade']==p.dec(maximum)
+                assert json.loads((engine.data_dir/'settings.json').read_text())['balance']==balance
+
         finally:
             server.shutdown();server.server_close();thread.join()
             for e in dashboard.engines.values():e.pool.shutdown();e.feed_pool.shutdown()
