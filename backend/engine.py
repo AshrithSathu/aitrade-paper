@@ -415,15 +415,17 @@ class Engine:
         old_price = common.dec(
             snapshot["yes_ask_dollars" if side == "UP" else "no_ask_dollars"]
         )
-        underlying_drift = abs(
-            common.dec(m["underlying"]["price"])
-            - common.dec(snapshot["underlying"]["price"])
+        underlying_change = common.dec(m["underlying"]["price"]) - common.dec(
+            snapshot["underlying"]["price"]
         )
-        contract_drift = abs(price - old_price) if price is not None else None
+        adverse_underlying_drift = (
+            -underlying_change if side == "UP" else underlying_change
+        )
+        adverse_contract_drift = price - old_price if price is not None else None
         if (
-            underlying_drift > common.dec(d["max_underlying_drift_usd"])
-            or contract_drift is None
-            or contract_drift > common.dec(d["max_contract_drift"])
+            adverse_underlying_drift > common.dec(d["max_underlying_drift_usd"])
+            or adverse_contract_drift is None
+            or adverse_contract_drift > common.dec(d["max_contract_drift"])
         ):
             return reject("Live market moved outside the AI plan")
         qty = common.dec(d["quantity"])

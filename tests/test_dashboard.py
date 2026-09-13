@@ -624,7 +624,7 @@ def run():
             apply(decision(quantity="2"))
             assert not s["positions"]
             original = e.payload("market_entry_review")
-            e.snapshots["BTC"]["underlying"]["price"] = "107"
+            e.snapshots["BTC"]["underlying"]["price"] = "95"
             apply(decision(), original)
             assert not s["positions"]
             e.snapshots["BTC"]["underlying"]["price"] = "101"
@@ -632,6 +632,14 @@ def run():
             e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
             apply(decision(), original)
             assert not s["positions"]
+            original = e.payload("market_entry_review")
+            e.snapshots["BTC"]["underlying"]["price"] = "107"
+            e.snapshots["BTC"]["yes_ask_dollars"] = ".79"
+            apply(decision(), original)
+            assert "BTC" in s["positions"]
+            s["positions"].clear()
+            s["cash"] = "1000"
+            e.snapshots["BTC"]["underlying"]["price"] = "101"
             e.snapshots["BTC"]["yes_ask_dollars"] = ".80"
             e.config["max_trade"] = common.dec(".1")
             apply(decision())
