@@ -160,8 +160,13 @@ class BookStream:
             )
             for side, token in m["tokens"].items()
         }
+        validation_market = {
+            key: self.market[key] for key in ("tokens", "condition_id")
+        }
         for side, body in self.metadata.items():
-            market.apply_book(copy.deepcopy(m), body, side, require_fresh=False)
+            market.apply_book(
+                copy.deepcopy(validation_market), body, side, require_fresh=False
+            )
             self.books[side] = copy.deepcopy(body)
         self.process = subprocess.Popen(
             [
@@ -236,7 +241,8 @@ class BookStream:
         if kind not in ("book", "price_change", "tick_size_change"):
             return
         changes = event.get("price_changes", []) if kind == "price_change" else [event]
-        pending = copy.deepcopy(self.books)
+        pending = self.books.copy()
+        copied = set()
         for change in changes:
             side = next(
                 (
@@ -257,6 +263,9 @@ class BookStream:
             else:
                 if side not in pending:
                     continue
+                if side not in copied:
+                    pending[side] = copy.deepcopy(pending[side])
+                    copied.add(side)
                 body = pending[side]
                 if common.dec(event["timestamp"]) < common.dec(body["timestamp"]):
                     raise ValueError("Out-of-order book update")
@@ -285,7 +294,13 @@ class BookStream:
                         body[key].append({"price": str(price), "size": str(size)})
                 body["timestamp"] = event["timestamp"]
             checked = market.apply_book(
-                copy.deepcopy(self.market), body, side, require_fresh=False
+                {
+                    key: copy.deepcopy(self.market[key])
+                    for key in ("tokens", "condition_id")
+                },
+                body,
+                side,
+                require_fresh=False,
             )
             if kind == "price_change":
                 for key, qkind in [("best_bid", "bid"), ("best_ask", "ask")]:
