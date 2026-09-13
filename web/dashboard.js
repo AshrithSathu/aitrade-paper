@@ -189,7 +189,7 @@ function render(update) {
           ? "Session started. " +
             d.waiting_for +
             ". No entry until data is ready. "
-          : "Paper trading is running. ") +
+          : "BTC trading is running. ") +
         (s.run_until
           ? "Stops at " + new Date(s.run_until).toLocaleString() + ". "
           : "") +

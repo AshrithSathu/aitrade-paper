@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "BTC AI Paper Trading",
-  "short_name": "BTC Paper",
-  "description": "Live Polymarket BTC paper-trading dashboard",
+  "name": "BTC Trading",
+  "short_name": "BTC Trade",
+  "description": "Live Polymarket BTC trading dashboard",
   "start_url": "/?minutes=5",
   "scope": "/",
   "display": "standalone",

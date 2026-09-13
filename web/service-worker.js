@@ -1,4 +1,4 @@
-const CACHE = "btc-paper-v1";
+const CACHE = "btc-trading-v2";
 const APP_SHELL = [
   "/",
   "/dashboard.css",
