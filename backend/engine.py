@@ -361,7 +361,13 @@ class Engine:
         action = d["action"]
 
         def reject(reason):
-            self.emit("decision_rejected", asset=a, action=action, reason=reason)
+            self.emit(
+                "decision_rejected",
+                asset=a,
+                ticker=d.get("ticker"),
+                action=action,
+                reason=reason,
+            )
 
         if s["paused"]:
             return reject("Trading is paused")

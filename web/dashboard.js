@@ -33,6 +33,8 @@ const loadedModes = new Set();
 const emptyHistory = () => ({
   decisions: [],
   entries: [],
+  results: [],
+  rejections: {},
   outcomes: {},
   trades: [],
   page: 1,
@@ -235,7 +237,7 @@ function render(update) {
             `<div class="event"><strong>${esc(p.side)} · ${esc(p.status)}</strong><br>${esc(p.size)} contracts · Entry ${money(p.entry)} · Current value per contract ${money(p.last_mark)}<br>${marketLink(p.ticker)}</div>`,
         )
         .join("")
-    : "No open trade.";
+    : "No active or settling trade.";
   $("performance").textContent =
     `${a.trades} closed trades · ${a.wins} wins · ${a.losses} losses`;
   const review = d.codex;
@@ -282,10 +284,19 @@ function renderHistory(minutes) {
   const outcomes = Object.fromEntries(
     Object.entries(history.outcomes).map(([ticker, payouts]) => [
       ticker,
-      payouts.UP === "1" ? "Up won" : "Down won",
+      payouts.UP === "1"
+        ? "Up won"
+        : payouts.DOWN === "1"
+          ? "Down won"
+          : "Split result",
     ]),
   );
-  const entries = new Set(history.entries);
+  const entries = new Map(
+    history.entries.map((entry) => [entry.ticker, entry]),
+  );
+  const results = new Map(
+    history.results.map((result) => [result.ticker, result]),
+  );
   const decisions = history.decisions
     .flatMap((e) => e.decisions.map((decision) => ({ ...decision, at: e.at })))
     .slice(0, 20);
@@ -298,14 +309,18 @@ function renderHistory(minutes) {
               : decision.action === "ENTER_UP"
                 ? "Enter Up"
                 : "Enter Down";
-          const fill =
-            decision.action === "WAIT"
-              ? "No trade"
-              : entries.has(decision.ticker)
-                ? "Filled"
-                : "Not filled";
+          const entry = entries.get(decision.ticker),
+            result = results.get(decision.ticker),
+            pnl = Number(result?.pnl),
+            pill = result
+              ? `<span class="result-pill ${pnl >= 0 ? "result-profit" : "result-loss"}">${pnl >= 0 ? "+" : ""}${money(pnl)}</span>`
+              : entry
+                ? '<span class="result-pill result-pending">Settlement pending</span>'
+                : `<span class="result-pill">${decision.action === "WAIT" ? "Skipped" : "Not filled"}</span>`,
+            invested = entry ? `Invested ${money(entry.cost)} · ` : "",
+            rejection = history.rejections[decision.ticker];
           const outcome = outcomes[decision.ticker] || "Outcome pending";
-          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="sub">${esc(new Date(decision.at).toLocaleString())}</span></div><div class="sub">${esc(fill)} · ${esc(outcome)} · ${marketLink(decision.ticker)}</div><div>${esc(decision.reason)}</div></div>`;
+          return `<div class="event"><div class="row"><strong>${esc(action)}</strong>${pill}</div><div class="sub">${esc(new Date(decision.at).toLocaleString())} · ${invested}${esc(outcome)} · ${marketLink(decision.ticker)}</div>${rejection ? `<div class="bad">Not filled: ${esc(rejection)}</div>` : ""}<div>${esc(decision.reason)}</div></div>`;
         })
         .join("")
     : "No decisions yet.";

@@ -343,11 +343,23 @@ class Handler(BaseHTTPRequestHandler):
                     "total": len(decisions),
                     "decisions": copy.deepcopy(selected),
                     "entries": [
-                        event["ticker"]
+                        copy.deepcopy(event)
                         for event in events
                         if event.get("kind") == "entry"
                         and event.get("ticker") in tickers
                     ],
+                    "results": [
+                        copy.deepcopy(event)
+                        for event in events
+                        if event.get("kind") == "exit"
+                        and event.get("ticker") in tickers
+                    ],
+                    "rejections": {
+                        event["ticker"]: event["reason"]
+                        for event in events
+                        if event.get("kind") == "decision_rejected"
+                        and event.get("ticker") in tickers
+                    },
                     "outcomes": {
                         event["ticker"]: copy.deepcopy(event["payouts"])
                         for event in events

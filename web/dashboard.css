@@ -225,6 +225,27 @@ td {
   border-bottom: 1px solid #e5ebf2;
   line-height: 1.6;
 }
+.result-pill {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #e5ebf2;
+  color: #526782;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.result-profit {
+  background: #d9f1e8;
+  color: #14765e;
+}
+.result-loss {
+  background: #f7dddd;
+  color: #b34242;
+}
+.result-pending {
+  background: #fff0cf;
+  color: #815d18;
+}
 .empty {
   padding: 25px 0;
   color: #67798e;

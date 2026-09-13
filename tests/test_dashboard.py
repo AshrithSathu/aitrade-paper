@@ -927,6 +927,8 @@ def run():
                     "total": 0,
                     "decisions": [],
                     "entries": [],
+                    "results": [],
+                    "rejections": {},
                     "outcomes": {},
                     "trades": [],
                 }
@@ -941,7 +943,8 @@ def run():
             )
             events.extend(
                 [
-                    {"kind": "entry", "ticker": "market-0"},
+                    {"kind": "entry", "ticker": "market-0", "cost": "2.50"},
+                    {"kind": "exit", "ticker": "market-0", "pnl": "2.50"},
                     {
                         "kind": "review_outcome",
                         "ticker": "market-0",
@@ -959,7 +962,9 @@ def run():
                 assert history["page"] == history["pages"] == 2
                 assert history["total"] == 21
                 assert history["decisions"][0]["decisions"][0]["ticker"] == "market-0"
-                assert history["entries"] == ["market-0"]
+                assert history["entries"][0]["ticker"] == "market-0"
+                assert history["results"][0]["pnl"] == "2.50"
+                assert history["rejections"] == {}
                 assert history["outcomes"]["market-0"]["UP"] == "1"
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True

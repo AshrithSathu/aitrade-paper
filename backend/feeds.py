@@ -481,7 +481,13 @@ class Feed:
     def market(self, ticker):
         if not re.fullmatch(r"[a-z]+-updown-(5|15)m-\d+", ticker):
             raise ValueError("Invalid Polymarket slug")
-        raw = get_json(common.GAMMA + "/markets/slug/" + ticker)
+        raw = get_json(
+            common.GAMMA
+            + "/markets/slug/"
+            + ticker
+            + "?"
+            + urllib.parse.urlencode({"settlement": int(time.time() // 15)})
+        )
         if raw.get("slug") != ticker:
             raise ValueError("Polymarket settlement slug mismatch")
         m = market.parse_market(raw, ticker.split("-")[0].upper())

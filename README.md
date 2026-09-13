@@ -49,6 +49,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 - Codex has a 25-second timeout. Decisions older than 30 seconds are rejected. Pause cancels AI; open trades continue to official settlement.
 - Every scheduled review is labeled with the eventual Up/Down settlement. This includes WAIT decisions, so later analysis can compare skipped opportunities with executed trades.
 - Current markets, open positions, decisions and closed trades link to the matching market on Polymarket for direct comparison.
+- Entry cost and fees leave available cash immediately. A finished market can wait for official settlement while the next market uses only the remaining cash; its exact payout is credited independently, including while the account is stopped.
 - Account loss limits and profit targets stop new entries. There is no per-position early-exit stop-loss.
 - The visible dashboard uses a compact SSE connection, capped at one update per second and closed while its browser tab is hidden. Start/Stop and settings use HTTP POST; trade and AI history load by HTTP only when the event version changes.
 
