@@ -357,11 +357,39 @@ $("newerdecisions").onclick = () =>
   loadHistory(selectedMinutes, histories[selectedMinutes].page - 1);
 $("olderdecisions").onclick = () =>
   loadHistory(selectedMinutes, histories[selectedMinutes].page + 1);
-let stream;
+let stream,
+  lastStreamMessage = 0,
+  reconciling = false;
+async function reconcile() {
+  if (reconciling || !latest || document.hidden) return;
+  reconciling = true;
+  try {
+    const responses = await Promise.all(
+      durations.map((minutes) => fetch("/api/status?minutes=" + minutes)),
+    );
+    if (responses.some((response) => !response.ok)) return;
+    const accounts = Object.fromEntries(
+      await Promise.all(
+        responses.map(async (response, index) => [
+          durations[index],
+          await response.json(),
+        ]),
+      ),
+    );
+    render({ ...latest, accounts });
+  } catch (_) {
+    // The event stream remains the primary source and reconnects automatically.
+  } finally {
+    reconciling = false;
+  }
+}
 function connectStream() {
   if (stream || document.hidden) return;
   stream = new EventSource("/api/events");
-  stream.onmessage = (event) => render(JSON.parse(event.data));
+  stream.onmessage = (event) => {
+    lastStreamMessage = Date.now();
+    render(JSON.parse(event.data));
+  };
   stream.onerror = () => {
     $("badge").textContent = "Reconnecting";
     $("notice").textContent =
@@ -375,12 +403,16 @@ document.addEventListener("visibilitychange", () => {
     stream = null;
   } else {
     connectStream();
+    reconcile();
   }
 });
 connectStream();
+setInterval(() => {
+  if (Date.now() - lastStreamMessage > 20000) reconcile();
+}, 15000);
 if ("serviceWorker" in navigator)
   window.addEventListener("load", () =>
-    navigator.serviceWorker.register("/service-worker.js?v=3", {
+    navigator.serviceWorker.register("/service-worker.js?v=4", {
       updateViaCache: "none",
     }),
   );
