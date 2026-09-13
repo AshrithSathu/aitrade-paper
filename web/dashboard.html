@@ -13,7 +13,7 @@
   />
   <link rel="manifest" href="/manifest.webmanifest?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
-  <link rel="stylesheet" href="/dashboard.css?v=4" />
+  <link rel="stylesheet" href="/dashboard.css?v=5" />
   <header>
     <div>
       <h1>BTC trading</h1>
@@ -242,17 +242,27 @@
                   step=".01"
                   required /></label
               ><label
-                >Total loss limit ($)<input
-                  name="daily_loss"
+                >NAV per trade (%)<input
+                  name="nav_allocation_percent"
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step=".01"
+                  required
+              /></label>
+              <label
+                >Maximum NAV drawdown (%)<input
+                  name="max_drawdown_percent"
                   type="number"
                   min="0"
+                  max="100"
                   step=".01"
                   required
               /></label>
             </div>
             <p class="sub">
-              Loss limit applies across the account, not per day. Zero disables
-              it. Reaching a limit blocks new trades; open trades still settle.
+              Trade value follows current NAV, up to the dollar and contract
+              caps. Zero drawdown disables the account stop.
             </p>
             <label class="toggle"
               ><input name="reverse_decisions" type="checkbox" />
@@ -270,7 +280,7 @@
             <div id="saved5" role="status" class="sub"></div>
           </form>
           <div class="panel">
-            <h2>5-minute loss limit</h2>
+            <h2>5-minute NAV drawdown</h2>
             <div id="lossbudget5">—</div>
             <div class="bar"><i id="lossbar5" style="width: 0"></i></div>
           </div>
@@ -301,17 +311,27 @@
                   step=".01"
                   required /></label
               ><label
-                >Total loss limit ($)<input
-                  name="daily_loss"
+                >NAV per trade (%)<input
+                  name="nav_allocation_percent"
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step=".01"
+                  required
+              /></label>
+              <label
+                >Maximum NAV drawdown (%)<input
+                  name="max_drawdown_percent"
                   type="number"
                   min="0"
+                  max="100"
                   step=".01"
                   required
               /></label>
             </div>
             <p class="sub">
-              Loss limit applies across the account, not per day. Zero disables
-              it. Reaching a limit blocks new trades; open trades still settle.
+              Trade value follows current NAV, up to the dollar and contract
+              caps. Zero drawdown disables the account stop.
             </p>
             <label class="toggle"
               ><input name="reverse_decisions" type="checkbox" />
@@ -329,7 +349,7 @@
             <div id="saved15" role="status" class="sub"></div>
           </form>
           <div class="panel">
-            <h2>15-minute loss limit</h2>
+            <h2>15-minute NAV drawdown</h2>
             <div id="lossbudget15">—</div>
             <div class="bar"><i id="lossbar15" style="width: 0"></i></div>
           </div>
@@ -337,5 +357,5 @@
       </aside>
     </div>
   </main>
-  <script src="/dashboard.js?v=5"></script>
+  <script src="/dashboard.js?v=6"></script>
 </html>

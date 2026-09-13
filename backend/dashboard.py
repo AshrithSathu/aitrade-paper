@@ -135,6 +135,9 @@ def export_csv(events):
         "official_outcome",
         "settled_at",
         "profit_loss",
+        "nav_at_entry",
+        "nav_allocation_percent",
+        "trade_budget",
     ]
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=columns)
@@ -199,6 +202,9 @@ def export_csv(events):
                     "official_outcome": outcome,
                     "settled_at": result.get("at"),
                     "profit_loss": result.get("pnl"),
+                    "nav_at_entry": entry.get("nav_at_entry"),
+                    "nav_allocation_percent": entry.get("nav_allocation_percent"),
+                    "trade_budget": entry.get("trade_budget"),
                 }
             )
     return ("\ufeff" + output.getvalue()).encode()
@@ -644,6 +650,15 @@ if __name__ == "__main__":
         if (directory / "settings.json").exists():
             previous = json.loads((directory / "settings.json").read_text())
             settings.update({k: v for k, v in previous.items() if k in settings})
+            if "max_drawdown_percent" not in previous and "daily_loss" in previous:
+                settings["max_drawdown_percent"] = str(
+                    min(
+                        common.dec(100),
+                        abs(common.dec(previous["daily_loss"]))
+                        * 100
+                        / common.dec(previous.get("balance", settings["balance"])),
+                    )
+                )
         settings.update(assets=["BTC"], market_minutes=minutes)
         state = (
             json.loads((directory / "state.json").read_text())

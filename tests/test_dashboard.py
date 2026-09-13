@@ -533,7 +533,7 @@ def run():
         clock = [common.now()]
         start = clock[0]
 
-        def decision(action="ENTER_UP", quantity=None, limit_price=None):
+        def decision(action="ENTER_UP", limit_price=None):
             entering = action.startswith("ENTER")
             return dict(
                 asset="BTC",
@@ -544,7 +544,6 @@ def run():
                 else ".95"
                 if entering
                 else ".55",
-                quantity=quantity or ("1" if entering else "0"),
                 limit_price=limit_price or (".85" if entering else "0"),
                 valid_for_seconds="30" if entering else "0",
                 max_underlying_drift_usd="5" if entering else "0",
@@ -660,8 +659,10 @@ def run():
             assert not s["positions"]
             apply(decision(), e.payload("manual_account_review"))
             assert not s["positions"]
-            apply(decision(quantity="2"))
+            e.config["size"] = common.dec(".5")
+            apply(decision())
             assert not s["positions"]
+            e.config["size"] = common.dec("1")
             original = e.payload("market_entry_review")
             e.snapshots["BTC"]["underlying"]["price"] = "95"
             apply(decision(), original)
@@ -723,10 +724,10 @@ def run():
             assert not s["positions"]
             assert "did not remain current" in s["events"][-1]["reason"]
             fresh(17)
-            e.config["daily_loss"] = common.dec("-.01")
+            e.config["max_drawdown_percent"] = common.dec(".01")
             apply(decision())
             assert not s["positions"]
-            e.config["daily_loss"] = common.dec("-600")
+            e.config["max_drawdown_percent"] = common.dec("10")
             apply(decision())
             assert "BTC" in s["positions"]
             cost = common.dec("0.8") + market.trade_fee(
@@ -736,7 +737,7 @@ def run():
             f.data["BTC"]["yes_bid_dollars"] = ".01"
             fresh(25)
             assert "BTC" in s["positions"]
-            apply(decision("EXIT", "0", "0"))
+            apply(decision("EXIT", "0"))
             assert "BTC" in s["positions"]  # no early exit path
             f.data["BTC"]["yes_bid_dollars"] = ".99"
             fresh(250)
@@ -800,7 +801,12 @@ def run():
             e.future = Future()
             e.future.set_result(
                 {
-                    "decisions": [decision("ENTER_UP", "20", ".85")],
+                    "decisions": [
+                        {
+                            **decision("ENTER_UP", ".85"),
+                            "estimated_up_probability": ".05",
+                        }
+                    ],
                     "reason": "fixture",
                 }
             )
@@ -808,8 +814,20 @@ def run():
             assert "BTC" in s["positions"], s["events"]
             position = s["positions"]["BTC"]
             assert position["side"] == "DOWN" and position["ai_side"] == "UP"
-            assert common.dec(position["size"]) < 20
+            assert common.dec(position["size"]) > 1
             assert common.dec(s["events"][-1]["cost"]) <= 10
+            assert position["nav_at_entry"] == "1000"
+            assert position["nav_allocation_percent"] == "1"
+            s["positions"].clear()
+            s["cash"] = "500"
+            e.config["max_drawdown_percent"] = common.dec("0")
+            original = e.payload("market_entry_review")
+            e.apply_decision(
+                {**decision("ENTER_UP", ".85"), "estimated_up_probability": ".05"},
+                original,
+            )
+            assert s["positions"]["BTC"]["trade_budget"] == "5"
+            assert common.dec(s["events"][-1]["cost"]) <= 5
             codex_event = next(
                 event for event in s["events"] if event["kind"] == "codex"
             )
@@ -861,7 +879,10 @@ def run():
             dict(assets=["BTC", "ETH"]),
             dict(size="NaN"),
             dict(size="1.001"),
-            dict(daily_loss="1"),
+            dict(nav_allocation_percent="0"),
+            dict(nav_allocation_percent="101"),
+            dict(max_drawdown_percent="-1"),
+            dict(max_drawdown_percent="101"),
             dict(reverse_decisions="yes"),
             dict(codex_interval="60"),
         ]:

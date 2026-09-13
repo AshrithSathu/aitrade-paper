@@ -136,7 +136,6 @@ for (const minutes of ["5", "15"]) {
       assets: ["BTC"],
       market_minutes: minutes,
     };
-    body.daily_loss = String(-Math.abs(Number(body.daily_loss)));
     body.reverse_decisions = form.elements.reverse_decisions.checked;
     action("settings", body, minutes);
   };
@@ -178,17 +177,22 @@ function render(update) {
       form = $("settings" + minutes),
       limits = account.settings;
     if (!loadedSettings.has(minutes)) {
-      for (const k of ["balance", "max_trade", "size", "daily_loss"])
-        form.elements[k].value =
-          k === "daily_loss" ? Math.abs(Number(limits[k])) : limits[k];
+      for (const k of [
+        "balance",
+        "max_trade",
+        "size",
+        "nav_allocation_percent",
+        "max_drawdown_percent",
+      ])
+        form.elements[k].value = limits[k];
       form.elements.reverse_decisions.checked = limits.reverse_decisions;
       loadedSettings.add(minutes);
     }
-    const used = Math.max(0, -Number(account.account.realized_pnl)),
-      limit = Math.abs(Number(limits.daily_loss));
+    const used = Number(account.account.drawdown_percent),
+      limit = Number(limits.max_drawdown_percent);
     $("lossbudget" + minutes).textContent = limit
-      ? money(used) + " used of " + money(limit)
-      : "No loss limit";
+      ? used.toFixed(2) + "% drawdown · " + limit.toFixed(2) + "% limit"
+      : "No drawdown limit";
     $("lossbar" + minutes).style.width =
       (limit ? Math.min(100, (used / limit) * 100) : 0) + "%";
   }
@@ -439,7 +443,7 @@ setInterval(() => {
 }, 15000);
 if ("serviceWorker" in navigator)
   window.addEventListener("load", () =>
-    navigator.serviceWorker.register("/service-worker.js?v=5", {
+    navigator.serviceWorker.register("/service-worker.js?v=6", {
       updateViaCache: "none",
     }),
   );

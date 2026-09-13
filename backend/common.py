@@ -31,7 +31,8 @@ DEFAULTS = dict(
     reverse_decisions=False,
     balance="1000",
     size="5",
-    daily_loss="-600",
+    nav_allocation_percent="1",
+    max_drawdown_percent="10",
     max_trade="10",
     interval="0.7",
     jitter="0.25",
@@ -89,12 +90,12 @@ def validate(values):
         or n["size"] * 100 % 1
         or n["balance"] <= 0
         or n["max_trade"] <= 0
+        or not 0 < n["nav_allocation_percent"] <= 100
+        or not 0 <= n["max_drawdown_percent"] <= 100
     ):
         raise ValueError(
-            "Positive cash/cap and maximum contracts with at most two decimals required"
+            "Positive cash/cap, valid NAV percentages and maximum contracts with at most two decimals required"
         )
-    if n["daily_loss"] > 0:
-        raise ValueError("Loss budget must be negative; 0 disables it")
     if not dec(".1") <= n["interval"] <= 60 or not 0 <= n["jitter"] <= 5:
         raise ValueError("Poll: 0.1–60 seconds; jitter: 0–5 seconds")
     return {**values, **n}
@@ -106,6 +107,7 @@ def initial_state(balance):
         venue="polymarket",
         initial_balance=str(balance),
         cash=str(balance),
+        peak_equity=str(balance),
         realized_pnl="0",
         trades=0,
         wins=0,

@@ -21,6 +21,7 @@ def account(s):
         (common.dec(p["last_mark"]) * common.dec(p["size"]) for p in exposure),
         common.dec(0),
     )
+    peak = common.dec(s.get("peak_equity", s["initial_balance"]))
     return dict(
         cash=s["cash"],
         equity=str(equity),
@@ -29,6 +30,8 @@ def account(s):
         unrealized_pnl=str(
             equity - common.dec(s["initial_balance"]) - common.dec(s["realized_pnl"])
         ),
+        peak_equity=str(peak),
+        drawdown_percent=str((peak - equity) * 100 / peak) if peak else "0",
         wins=s["wins"],
         losses=s["losses"],
         trades=s["trades"],
@@ -61,6 +64,15 @@ class Engine:
         self.saved_state = None
         self.state.setdefault("reviewed_markets", {})
         self.state.setdefault("evaluations", {})
+        self.state.setdefault(
+            "peak_equity",
+            str(
+                max(
+                    common.dec(self.state["initial_balance"]),
+                    common.dec(account(self.state)["equity"]),
+                )
+            ),
+        )
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.feed_pool = ThreadPoolExecutor(max_workers=7)
         if (self.data_dir / "codex-latest.json").exists():
@@ -94,7 +106,14 @@ class Engine:
                     k: v
                     for k, v in self.config.items()
                     if k
-                    in ("assets", "market_minutes", "size", "max_trade", "daily_loss")
+                    in (
+                        "assets",
+                        "market_minutes",
+                        "size",
+                        "nav_allocation_percent",
+                        "max_drawdown_percent",
+                        "max_trade",
+                    )
                 },
                 account=account(self.state),
                 positions=self.state["positions"],
@@ -122,7 +141,7 @@ class Engine:
                     "AI-only Polymarket paper decisions; asks/bids with estimated taker fees, no slippage beyond displayed top size",
                     "Underlying history is locally recorded Chainlink 60s TWAP; gaps and warm-up are explicit",
                     "CLOB contract probability history is separate from underlying USD prices",
-                    "Loss budget blocks new exposure; it does not automatically sell positions",
+                    "Maximum NAV drawdown blocks new exposure; it does not automatically sell positions",
                 ],
                 paused=self.state["paused"],
                 halted=self.state["halted"],
@@ -322,11 +341,12 @@ class Engine:
 
     def limits(self):
         s = self.state
-        if (
-            self.config["daily_loss"] < 0
-            and common.dec(s["realized_pnl"]) <= self.config["daily_loss"]
-        ):
-            s["halted"] = "Total loss limit reached"
+        equity = common.dec(account(s)["equity"])
+        peak = max(common.dec(s.get("peak_equity", s["initial_balance"])), equity)
+        s["peak_equity"] = str(peak)
+        limit = self.config["max_drawdown_percent"]
+        if limit > 0 and equity <= peak * (1 - limit / 100):
+            s["halted"] = "Maximum NAV drawdown reached"
             if not s["paused"]:
                 self.pause()
             s["stop_reason"] = s["halted"]
@@ -422,7 +442,7 @@ class Engine:
         if pos or prior:
             return reject("Existing position is held to settlement")
         if s["halted"] or self.limits():
-            return reject("Account loss limit blocks entry")
+            return reject("Account NAV drawdown limit blocks entry")
         snapshot = original["markets"][a]
         current_underlying = m.get("underlying", {})
         snapshot_underlying = snapshot.get("underlying", {})
@@ -443,9 +463,9 @@ class Engine:
         side = {"UP": "DOWN", "DOWN": "UP"}[ai_side] if reversed_decision else ai_side
         price = market.quote(m, side)
         estimated_up = common.dec(d["estimated_up_probability"])
-        estimated_side = estimated_up if ai_side == "UP" else 1 - estimated_up
+        estimated_side = estimated_up if side == "UP" else 1 - estimated_up
         breakeven = common.dec(
-            snapshot["signals"]["books"][ai_side]["breakeven_win_probability"]
+            snapshot["signals"]["books"][side]["breakeven_win_probability"]
         )
         if estimated_side <= breakeven:
             return reject("AI probability estimate does not clear fees")
@@ -490,44 +510,38 @@ class Engine:
                 f"{side} ask rose ${adverse_contract_drift:.2f}; maximum allowed was ${contract_cap:.2f}"
             )
         live_breakeven = price + market.trade_fee(m, Decimal(1), price)
-        if not reversed_decision and estimated_side <= live_breakeven:
-            return reject("Live ask no longer has positive fee-adjusted edge")
-        qty = common.dec(d["quantity"])
-        if reversed_decision:
-            unit_cost = price + market.trade_fee(m, Decimal(1), price)
-            affordable = (
-                min(self.config["max_trade"], common.dec(s["cash"])) / unit_cost
-            )
-            qty = min(
-                qty,
-                self.config["size"],
-                affordable.quantize(Decimal(".01"), rounding=ROUND_DOWN),
-            )
+        if estimated_side <= live_breakeven:
+            return reject("Actual contract does not have positive fee-adjusted edge")
+        c = self.config
+        nav = common.dec(account(s)["equity"])
+        budget = min(
+            nav * c["nav_allocation_percent"] / 100,
+            c["max_trade"],
+            common.dec(s["cash"]),
+        )
+        unit_cost = price + market.trade_fee(m, Decimal(1), price)
+        qty = min(
+            c["size"],
+            (budget / unit_cost).quantize(Decimal(".01"), rounding=ROUND_DOWN),
+        )
         depth = m.get(("yes" if side == "UP" else "no") + "_ask_size_fp")
         if depth is None or common.dec(depth) < qty:
             return reject("Insufficient displayed entry size")
         fee = market.trade_fee(m, qty, price)
         cost = price * qty + fee
-        c = self.config
         if qty < common.dec(m["order_limits"][side]["minimum"]) or (
             base_price_limit % common.dec(m["order_limits"][side]["tick"])
         ):
-            return reject("AI quantity or limit price violates market minimum/tick")
-        if qty > c["size"] or cost > c["max_trade"] or cost > common.dec(s["cash"]):
-            return reject("Quantity, spending cap or cash exceeded")
-        exposure = sum(
-            (
-                common.dec(p["entry"]) * common.dec(p["size"])
-                + common.dec(p.get("entry_fee", "0"))
-                for p in list(s["positions"].values()) + list(s["pending"].values())
-            ),
-            common.dec(0),
-        )
-        if (
-            c["daily_loss"] < 0
-            and common.dec(s["realized_pnl"]) - exposure - cost < c["daily_loss"]
-        ):
-            return reject("Worst-case exposure exceeds remaining loss budget")
+            return reject(
+                "Calculated quantity or limit price violates market minimum/tick"
+            )
+        if cost > budget:
+            return reject("NAV trade budget exceeded")
+        drawdown = c["max_drawdown_percent"]
+        if drawdown > 0 and common.dec(s["cash"]) - cost < common.dec(
+            s["peak_equity"]
+        ) * (1 - drawdown / 100):
+            return reject("Worst-case trade would exceed maximum NAV drawdown")
         s["cash"] = str(common.dec(s["cash"]) - cost)
         pos = dict(
             asset=a,
@@ -535,6 +549,9 @@ class Engine:
             side=side,
             ai_side=ai_side,
             reverse_mode=reversed_decision,
+            nav_at_entry=str(nav),
+            nav_allocation_percent=str(c["nav_allocation_percent"]),
+            trade_budget=str(budget),
             entry=str(price),
             entry_fee=str(fee),
             size=str(qty),
