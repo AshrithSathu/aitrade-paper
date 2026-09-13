@@ -515,6 +515,16 @@ class Engine:
                 )
         s = self.state
         c = self.config
+        if s["paused"] and not s["positions"] and not s["pending"]:
+            stop_duration = getattr(self.feed, "stop_duration", None)
+            if stop_duration:
+                stop_duration(c["market_minutes"])
+            self.snapshots = {}
+            self.errors = {
+                key: value for key, value in self.errors.items() if key == "storage"
+            }
+            self.save_state()
+            return
         assets = list(dict.fromkeys(c["assets"] + list(s["positions"])))
         jobs = {a: self.feed_pool.submit(self.feed.snapshot, a, c) for a in assets}
         for a, f in jobs.items():

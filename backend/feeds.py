@@ -210,6 +210,8 @@ class BookStream:
             return
         if event.get("market") != self.market["condition_id"]:
             return
+        self.last_message = time.monotonic()
+        self.error = None
         kind = event.get("event_type")
         if kind == "last_trade_price":
             side = next(
@@ -477,6 +479,10 @@ class Feed:
     def close(self):
         for stream in self.streams.values():
             stream.close()
+
+    def stop_duration(self, duration):
+        for key in [key for key in self.streams if key[1] == int(duration)]:
+            self.streams.pop(key).close()
 
     def market(self, ticker):
         if not re.fullmatch(r"[a-z]+-updown-(5|15)m-\d+", ticker):
