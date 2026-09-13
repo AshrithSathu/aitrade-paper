@@ -640,11 +640,13 @@ def run():
             e.snapshots["BTC"]["underlying"]["price"] = "95"
             apply(decision(), original)
             assert not s["positions"]
+            assert "BTC moved $" in s["events"][-1]["reason"]
             e.snapshots["BTC"]["underlying"]["price"] = "101"
             original = e.payload("market_entry_review")
             e.snapshots["BTC"]["yes_ask_dollars"] = ".84"
             apply(decision(), original)
             assert not s["positions"]
+            assert "UP ask rose $" in s["events"][-1]["reason"]
             original = e.payload("market_entry_review")
             e.snapshots["BTC"]["underlying"]["price"] = "107"
             e.snapshots["BTC"]["yes_ask_dollars"] = ".79"

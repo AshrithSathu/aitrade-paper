@@ -428,12 +428,18 @@ class Engine:
             -underlying_change if side == "UP" else underlying_change
         )
         adverse_contract_drift = price - old_price if price is not None else None
-        if (
-            adverse_underlying_drift > common.dec(d["max_underlying_drift_usd"])
-            or adverse_contract_drift is None
-            or adverse_contract_drift > common.dec(d["max_contract_drift"])
-        ):
-            return reject("Live market moved outside the AI plan")
+        underlying_limit = common.dec(d["max_underlying_drift_usd"])
+        contract_limit = common.dec(d["max_contract_drift"])
+        if adverse_underlying_drift > underlying_limit:
+            return reject(
+                f"BTC moved ${adverse_underlying_drift:.2f} against {side}; AI allowed ${underlying_limit:.2f}"
+            )
+        if adverse_contract_drift is None:
+            return reject(f"{side} ask became unavailable")
+        if adverse_contract_drift > contract_limit:
+            return reject(
+                f"{side} ask rose ${adverse_contract_drift:.2f}; AI allowed ${contract_limit:.2f}"
+            )
         qty = common.dec(d["quantity"])
         if price is None or not 0 < price < 1 or price > common.dec(d["limit_price"]):
             return reject("Ask above AI entry limit or unavailable")
