@@ -115,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not idle.wait_for(lambda:not view['busy'],timeout=30):raise ValueError('Wait for the current data refresh')
                     for asset in engine.config['assets']:
                         if not engine.ready(asset,history=True):raise ValueError(f'{asset}: fresh Polymarket books, Chainlink TWAP, opening tick and history must be available')
-                    s['paused']=False;engine.epoch+=1
+                    engine.start_run(body.get('duration_hours',12),body.get('profit_target_percent',0))
                 elif self.path=='/api/review':
                     if not idle.wait_for(lambda:not view['busy'],timeout=30) or engine.future:raise ValueError('A feed update or Codex review is running. Try again shortly.')
                     if not engine.request_review('manual_account_review'):raise ValueError('Resume paper trading before requesting an AI review')

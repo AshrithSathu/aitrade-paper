@@ -60,7 +60,11 @@ def run():
     end=int(time.time()//60)*60000
     signal_market=copy.deepcopy(m);signal_market.update(fee_rate='.07',close_time=(p.now()+timedelta(minutes=10)).isoformat())
     signal_market['underlying']=dict(source_at=p.datetime.fromtimestamp(end/1000,p.timezone.utc).isoformat(),delta='-2',
-        history=dict(first_at=end-30*60000,max_gap_ms=1000,bars=[dict(t=end-(30-i)*60000,open=str(100+i),close=str(100+i),high=str(100+i),low=str(100+i)) for i in range(31)]))
+        history=dict(first_at=end-30*60000,max_gap_ms=1000,bars=[dict(t=end-(30-i)*60000,samples=60,open=str(100+i),close=str(100+i),high=str(100+i),low=str(100+i)) for i in range(31)]))
+    signal_market['raw_market']={'irrelevant':'provider dump'}
+    brief=p.market_brief(signal_market)
+    assert 'raw_market' not in brief and 'orderbook' not in brief
+    assert len(brief['history']['recent_1m'])==15 and brief['ticker']==signal_market['ticker']
     signals=p.trading_signals(signal_market)
     assert signals['windows']['5m']['complete'] and not signals['windows']['60m']['complete']
     assert signals['rsi14_simple_closed_minutes']==100 and signals['opening_delta_usd']=='-2'
@@ -77,7 +81,7 @@ def run():
         def window(asset,start):
             with sqlite3.connect(stream.path) as db:
                 return db.execute('SELECT timestamp,value FROM ticks WHERE asset=? ORDER BY timestamp',(asset,)).fetchall(),db.execute('SELECT value FROM ticks WHERE asset=? AND timestamp=?',(asset,start)).fetchone()
-        stream.history=SimpleNamespace(window=window)
+        stream.history=SimpleNamespace(window=window,context24=lambda asset:{"requested_hours":24,"bars":[]})
         with sqlite3.connect(stream.path) as db:
             db.execute('CREATE TABLE ticks (asset TEXT,timestamp INTEGER,value TEXT,PRIMARY KEY(asset,timestamp))')
             db.executemany('INSERT INTO ticks VALUES (?,?,?)',ticks)
@@ -195,6 +199,11 @@ def run():
             e.complete_review()
             assert not e.request_review('manual_account_review')
             assert not e.request_review('market_entry_review')
+        e.start_run(12,1);assert s['profit_target_percent']=='1'
+        s['realized_pnl']=str(p.dec(s['run_start_realized'])+p.dec(s['run_start_equity'])/100);e.expire_run()
+        assert s['paused'] and s['stop_reason']=='Profit target reached'
+        e.start_run(12,0);s['run_until']=p.now().isoformat();e.expire_run()
+        assert s['paused'] and not e.request_review('manual_account_review')
         e.pool.shutdown(wait=True);e.feed_pool.shutdown(wait=True)
         for bad in [dict(assets=['ETH']),dict(assets=['BTC','ETH']),dict(size='NaN'),dict(size='1.001'),dict(daily_loss='1'),dict(codex_interval='60')]:
             try:p.validate({**c,**bad})

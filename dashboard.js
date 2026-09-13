@@ -7,16 +7,18 @@ async function action(path,body={}){
  try{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);$('saved').textContent=path==='settings'?'Limits saved.':'Done.';await refresh()}
  catch(e){$('saved').textContent=e.message}
 }
-$('start').onclick=()=>action('start');$('pause').onclick=()=>action('pause');$('codexlogin').onclick=()=>action('codex/login');
+$('start').onclick=()=>{if($('runhours').reportValidity()&&$('profittarget').reportValidity())action('start',{duration_hours:$('runhours').value,profit_target_percent:$('profittarget').value})};$('pause').onclick=()=>action('pause');$('codexlogin').onclick=()=>action('codex/login');
 form.onsubmit=e=>{e.preventDefault();if(!settings)return;const body={...settings,...Object.fromEntries(new FormData(form)),assets:['BTC']};body.daily_loss=String(-Math.abs(Number(body.daily_loss)));action('settings',body)};
 async function refresh(){
  if(inFlight)return;inFlight=true;
  try{
   const r=await fetch('/api/status');if(!r.ok)throw Error('Status unavailable');const d=await r.json(),s=d.state,a=d.account,m=d.markets.BTC,u=m?.underlying;
   settings=d.settings;
+  $('runhours').disabled=!d.paused;$('profittarget').disabled=!d.paused;
+  if(!loaded){$('runhours').value=s.run_hours||12;$('profittarget').value=s.profit_target_percent||0;}
   if(!loaded){for(const k of ['balance','max_trade','size','daily_loss'])form.elements[k].value=k==='daily_loss'?Math.abs(Number(settings[k])):settings[k];loaded=true}
   $('badge').textContent=s.halted?'Limit reached':d.paused?'Paused':'Running';$('start').disabled=!d.paused||!!s.halted;$('pause').disabled=d.paused;
-  $('notice').textContent=d.error?'Trading paused: '+d.error:d.paused?'Paused. AI is stopped.':'Paper trading is running. AI reviews each market once.';
+  $('notice').textContent=d.error?'Trading paused: '+d.error:d.paused?(s.stop_reason?s.stop_reason+'. AI is stopped.':'Paused. AI is stopped.'):'Paper trading is running. '+(s.run_until?'Stops at '+new Date(s.run_until).toLocaleString()+'. ':'')+'AI reviews each market once.';
   ['cash','equity'].forEach(k=>$(k).textContent=money(a[k]));$('pnl').textContent=money(a.realized_pnl);$('pnl').className=Number(a.realized_pnl)<0?'bad':'good';$('unrealized').textContent=money(a.unrealized_pnl);
   $('window').textContent=m?time(m.open_time)+' – '+time(m.close_time):'Waiting for market';
   $('up').textContent=money(m?.yes_ask_dollars);$('down').textContent=money(m?.no_ask_dollars);

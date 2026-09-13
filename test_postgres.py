@@ -13,6 +13,7 @@ with tempfile.TemporaryDirectory() as folder,patch.object(p,'DATA',Path(folder))
     store=p.TickStore()
     rows,opening=store.window('BTC',current)
     assert rows[-1]==(current,'3') and opening==('3',)
+    context=store.context24('BTC');assert context['requested_hours']==24 and context['bars'][-1]['close']=='3'
     store.append([('BTC',current,'3')])
     assert store.prune(cutoff)==1 and store.prune(cutoff)==0
     store.close()
