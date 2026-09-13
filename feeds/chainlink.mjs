@@ -30,6 +30,8 @@ async function connect() {
         );
       ws.onmessage = (event) => {
         lastMessage = Date.now();
+        if (books)
+          report({ event_type: "heartbeat", received_at: lastMessage });
         try {
           const msg = JSON.parse(event.data);
           if (books || msg.topic === "crypto_prices_twap_sixty") report(msg);

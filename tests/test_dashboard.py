@@ -130,10 +130,14 @@ def run():
     stream.book_samples = deque(maxlen=301)
     stream.trade_samples = deque(maxlen=5000)
     stream.flow_started = time.time() - 60
+    stream.last_message = time.monotonic() - 20
+    stream.lock = threading.Lock()
     stream.market = copy.deepcopy(m)
     stream.books = {}
     stream.metadata = {"UP": body}
     stream.error = None
+    stream.update({"event_type": "heartbeat", "received_at": int(time.time() * 1000)})
+    assert time.monotonic() - stream.last_message < 1
     stream.update(
         {
             **body,
@@ -149,6 +153,11 @@ def run():
     else:
         raise AssertionError("Stale stream book became tradable")
     stream.update({**body, "event_type": "book"})
+    stream.books["DOWN"] = {**copy.deepcopy(body), "asset_id": "22"}
+    live = copy.deepcopy(m)
+    stream.snapshot(live)
+    assert live["book_source_at"] and live["received_at"] != live["book_source_at"]
+    assert live["book_source"].endswith("live WebSocket updates")
     stream.update(
         {
             "event_type": "price_change",

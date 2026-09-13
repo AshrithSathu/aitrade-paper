@@ -151,6 +151,7 @@ class BookStream:
         self.book_samples = deque(maxlen=301)
         self.trade_samples = deque(maxlen=5000)
         self.flow_started = time.time()
+        self.last_message = time.monotonic()
         self.lock = threading.Lock()
         self.error = "Waiting for WebSocket books"
         self.metadata = {
@@ -161,6 +162,7 @@ class BookStream:
         }
         for side, body in self.metadata.items():
             market.apply_book(copy.deepcopy(m), body, side, require_fresh=False)
+            self.books[side] = copy.deepcopy(body)
         self.process = subprocess.Popen(
             [
                 "node",
@@ -189,6 +191,15 @@ class BookStream:
             self.trade_samples.clear()
             self.flow_started = time.time()
             self.error = event["error"]
+            return
+        if event.get("event_type") == "heartbeat":
+            received_at = event.get("received_at")
+            if (
+                isinstance(received_at, int)
+                and 0 <= time.time() * 1000 - received_at <= 5000
+            ):
+                self.last_message = time.monotonic()
+                self.error = None
             return
         if event.get("market") != self.market["condition_id"]:
             return
@@ -287,6 +298,7 @@ class BookStream:
                         raise ValueError("Book delta out of sync")
             pending[side] = body
         self.books = pending
+        self.last_message = time.monotonic()
         self.error = None
 
     def collect(self):
@@ -310,10 +322,14 @@ class BookStream:
         with self.lock:
             if self.error:
                 raise ValueError(self.error)
+            if time.monotonic() - self.last_message > 10:
+                raise ValueError("Waiting for live Polymarket connection")
             for side in m["tokens"]:
                 if side not in self.books:
                     raise ValueError("Waiting for complete WebSocket books")
-                market.apply_book(m, copy.deepcopy(self.books[side]), side)
+                market.apply_book(
+                    m, copy.deepcopy(self.books[side]), side, require_fresh=False
+                )
             stamp = time.time()
             if not self.book_samples or stamp - self.book_samples[-1][0] >= 1:
                 point = {}
@@ -339,7 +355,9 @@ class BookStream:
                     }
                 self.book_samples.append((stamp, point))
             m["flow"] = self.flow_context(stamp)
-        m["book_source"] = "Polymarket market WebSocket"
+        m["book_source_at"] = m.pop("received_at")
+        m["received_at"] = common.now().isoformat()
+        m["book_source"] = "Validated Polymarket book with live WebSocket updates"
 
     def flow_context(self, stamp):
         result = {

@@ -217,12 +217,21 @@ function render(update) {
         .join("")
     : '<tr><td colspan="6">No closed trades yet.</td></tr>';
   const review = d.codex;
+  const reviewTicker = review?.payload?.markets?.BTC?.ticker;
+  const currentReview = reviewTicker && reviewTicker === m?.ticker;
   $("reviewstatus").textContent =
-    review?.status === "running"
+    currentReview && review?.status === "running"
       ? "AI is reviewing this market…"
-      : review?.response?.reason || "No decision yet.";
+      : currentReview && review?.response?.reason
+        ? review.response.reason
+        : d.state.phases?.BTC === "SKIPPED_WINDOW"
+          ? "No decision: required live data was unavailable during this market's review window."
+          : d.waiting_for
+            ? "Waiting for data before this market can be reviewed."
+            : "No decision yet for this market.";
   $("reviewtime").textContent = review?.payload?.at
-    ? "Last review: " + new Date(review.payload.at).toLocaleString()
+    ? (currentReview ? "Current review: " : "Previous review: ") +
+      new Date(review.payload.at).toLocaleString()
     : "";
   const login = update.login;
   $("loginstatus").textContent = login.status;
