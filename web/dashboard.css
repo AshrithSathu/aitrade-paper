@@ -276,6 +276,12 @@ pre {
   font-weight: 700;
   white-space: nowrap;
 }
+.result-pills {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .result-profit {
   background: #d9f1e8;
   color: #14765e;

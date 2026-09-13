@@ -246,13 +246,15 @@ function render(update) {
   $("reviewstatus").textContent =
     currentReview && review?.status === "running"
       ? "AI is reviewing this market…"
-      : currentReview && review?.response?.reason
-        ? review.response.reason
-        : d.state.phases?.BTC === "SKIPPED_WINDOW"
-          ? "No decision: required live data was unavailable during this market's review window."
-          : d.waiting_for
-            ? "Waiting for data before this market can be reviewed."
-            : "No decision yet for this market.";
+      : d.paused
+        ? "Trading is stopped. No AI review will run until you start it."
+        : currentReview && review?.response?.reason
+          ? review.response.reason
+          : d.state.phases?.BTC === "SKIPPED_WINDOW"
+            ? "No decision: required live data was unavailable during this market's review window."
+            : d.waiting_for
+              ? "Waiting for data before this market can be reviewed."
+              : "No decision yet for this market.";
   $("reviewtime").textContent = review?.payload?.at
     ? (currentReview ? "Current review: " : "Previous review: ") +
       new Date(review.payload.at).toLocaleString()
@@ -317,10 +319,12 @@ function renderHistory(minutes) {
               : entry
                 ? '<span class="result-pill result-pending">Settlement pending</span>'
                 : `<span class="result-pill">${decision.action === "WAIT" ? "Skipped" : "Not filled"}</span>`,
-            invested = entry ? `Invested ${money(entry.cost)} · ` : "",
+            stake = entry
+              ? `<span class="result-pill">Put ${money(entry.cost)}</span>`
+              : "",
             rejection = history.rejections[decision.ticker];
           const outcome = outcomes[decision.ticker] || "Outcome pending";
-          return `<div class="event"><div class="row"><strong>${esc(action)}</strong>${pill}</div><div class="sub">${esc(new Date(decision.at).toLocaleString())} · ${invested}${esc(outcome)} · ${marketLink(decision.ticker)}</div>${rejection ? `<div class="bad">Not filled: ${esc(rejection)}</div>` : ""}<div>${esc(decision.reason)}</div></div>`;
+          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="result-pills">${stake}${pill}</span></div><div class="sub">${esc(new Date(decision.at).toLocaleString())} · ${esc(outcome)} · ${marketLink(decision.ticker)}</div>${rejection ? `<div class="bad">Not filled: ${esc(rejection)}</div>` : ""}<div>${esc(decision.reason)}</div></div>`;
         })
         .join("")
     : "No decisions yet.";
