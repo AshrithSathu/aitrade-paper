@@ -64,7 +64,16 @@ def run():
     signal_market['raw_market']={'irrelevant':'provider dump'}
     brief=p.market_brief(signal_market)
     assert 'raw_market' not in brief and 'orderbook' not in brief
-    assert len(brief['history']['recent_1m'])==15 and brief['ticker']==signal_market['ticker']
+    assert brief['depth']['outcomes']['UP']['asks']['levels'][0]==['0.5','10']
+    assert brief['depth']['outcomes']['UP']['asks']['total_contracts']=='12'
+    assert len(brief['history']['recent_1m'])==31 and brief['ticker']==signal_market['ticker']
+    deep=copy.deepcopy(signal_market);deep['orderbook']['UP']['asks']=[{'price':str(p.dec('.5')+p.dec(i)/100),'size':'1'} for i in range(20)]
+    deep['contract_history']={'outcomes':{'UP':[{'t':i,'p':'.5'} for i in range(61)]}}
+    detailed=p.market_brief(deep)
+    assert len(detailed['depth']['outcomes']['UP']['asks']['levels'])==10
+    assert detailed['depth']['outcomes']['UP']['asks']['omitted_levels']==10
+    assert detailed['depth']['outcomes']['UP']['asks']['total_contracts']=='20'
+    assert len(detailed['contract_history']['outcomes']['UP'])==61
     signals=p.trading_signals(signal_market)
     assert signals['windows']['5m']['complete'] and not signals['windows']['60m']['complete']
     assert signals['rsi14_simple_closed_minutes']==100 and signals['opening_delta_usd']=='-2'

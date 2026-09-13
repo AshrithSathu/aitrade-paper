@@ -472,21 +472,44 @@ def market_brief(m):
         'asset','ticker','open_time','close_time','description','resolution_source','received_at',
         'yes_ask_dollars','no_ask_dollars','yes_bid_dollars','no_bid_dollars',
         'yes_ask_size_fp','no_ask_size_fp','yes_bid_size_fp','no_bid_size_fp',
-        'fee_rate','order_limits','book_source','signals') if k in m}
+        'fee_rate','fee_details','order_limits','book_source','signals') if k in m}
+    raw=m.get('raw_market',{})
+    brief['market_status']={k:raw[k] for k in ('active','closed','acceptingOrders','enableOrderBook','restricted','updatedAt') if k in raw}
+    brief['provider_market_metrics']={k:raw[k] for k in ('volumeNum','volume24hrClob','liquidityClob') if k in raw}
+    brief['provider_metrics_note']='Provider market aggregates; may lag the live book. These are contract-market metrics, not BTC exchange volume.'
     u=m.get('underlying',{});h=u.get('history',{});long=u.get('history_24h',{})
     brief['underlying']={k:v for k,v in u.items() if k not in ('history','history_24h')}
     def table(bars):
-        return [[b['t'],*[round(float(b[k]),2) for k in ('open','high','low','close')],b['samples'],b.get('max_gap_ms')] for b in bars]
-    brief['history']=dict(columns=['timestamp_ms','open_usd','high_usd','low_usd','close_usd','observations','max_gap_ms'],
+        return [[b['t'],*[round(float(b[k]),2) for k in ('open','high','low','close')],b['samples'],b.get('max_gap_ms'),b.get('first_at'),b.get('last_at')] for b in bars]
+    brief['history']=dict(columns=['timestamp_ms','open_usd','high_usd','low_usd','close_usd','observations','max_gap_ms','first_observation_ms','last_observation_ms'],
         price_precision='Historical table prices rounded to USD cents; live/opening prices retain full precision',
-        recent_1m=table(h.get('bars',[])[-15:]),
+        recent_1m=table(h.get('bars',[])),
         context_15m=table(long.get('bars',[])),requested_hours=24,available_hours=long.get('available_hours',0),
         samples_last_hour=h.get('samples',0),max_gap_last_hour_ms=h.get('max_gap_ms'),
         limitation=long.get('limitation','24-hour context unavailable'))
     contract=m.get('contract_history',{})
     brief['contract_history']={k:v for k,v in contract.items() if k!='outcomes'}
-    brief['contract_history']['outcomes']={side:dict(samples=len(points),first=points[0] if points else None,
-        latest=points[-1] if points else None,recent=points[-15:]) for side,points in contract.get('outcomes',{}).items()}
+    brief['contract_history']['columns']=['timestamp_seconds','probability']
+    brief['contract_history']['outcomes']={side:[[point['t'],point['p']] for point in points] for side,points in contract.get('outcomes',{}).items()}
+    brief['depth']={'columns':['price_usd','contracts'],'outcomes':{},
+        'limitations':'Top 10 nonzero levels per side plus whole-book totals; snapshot liquidity is not order flow or guaranteed fills. Paper execution uses best ask size only.'}
+    for side,book in m.get('orderbook',{}).items():
+        summary={'source_timestamp_ms':book['timestamp']}
+        for key,reverse in [('bids',True),('asks',False)]:
+            totals={}
+            for row in book[key]:
+                price,size=dec(row['price']),dec(row['size'])
+                if size:totals[price]=totals.get(price,dec(0))+size
+            levels=sorted(totals.items(),reverse=reverse)
+            best=levels[0][0] if levels else None
+            summary[key]=dict(levels=[[str(price),str(size)] for price,size in levels[:10]],
+                total_levels=len(levels),omitted_levels=max(0,len(levels)-10),
+                total_contracts=str(sum(totals.values(),dec(0))),
+                contracts_within_cents={str(cents):str(sum((size for price,size in levels if abs(price-best)<=dec(cents)/100),dec(0))) for cents in (1,3,5)} if best is not None else {})
+        brief['depth']['outcomes'][side]=summary
+    brief['context_limits']=['No historical order-book changes or aggressor trade flow is collected',
+        'No calibrated probability model or matched past-market outcomes; indicators alone do not establish an edge',
+        'Provider identifiers, images and duplicate market metadata omitted; market rules and fee details retained']
     return brief
 
 
@@ -574,7 +597,8 @@ class Engine:
             review_policy='One review at minute 3 (60-second dispatch window); WAIT/error skips market; hold entries to official settlement',
             strategy={k:v for k,v in self.config.items() if k in ('assets','size','max_trade','daily_loss')},account=account(self.state),positions=self.state['positions'],pending_settlements=self.state['pending'],
             phases=self.state['phases'],markets={a:market_brief(m) for a,m in self.snapshots.items()},feed_errors=self.errors,
-            recent_events=[{k:(v[:500] if k=='reason' and isinstance(v,str) else v) for k,v in event.items() if k!='decisions'} for event in self.state['events'][-10:]],
+            run_controls={k:self.state.get(k) for k in ('run_until','profit_target_percent','run_start_equity','run_start_realized')},
+            recent_events=[{k:(v[:500] if k=='reason' and isinstance(v,str) else v) for k,v in event.items()} for event in self.state['events'][-10:]],
             limitations=['AI-only Polymarket paper decisions; asks/bids with estimated taker fees, no slippage beyond displayed top size',
                 'Underlying history is locally recorded Chainlink 60s TWAP; gaps and warm-up are explicit',
                 'CLOB contract probability history is separate from underlying USD prices',
