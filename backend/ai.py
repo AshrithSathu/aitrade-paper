@@ -12,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import common
+from . import common, market
 
 
 def market_brief(m):
@@ -42,6 +42,7 @@ def market_brief(m):
             "book_source",
             "signals",
             "flow",
+            "public_trade_activity",
         )
         if k in m
     }
@@ -112,6 +113,33 @@ def market_brief(m):
         side: [[point["t"], point["p"]] for point in points]
         for side, points in contract.get("outcomes", {}).items()
     }
+    received_at = m.get("received_at") or m.get("underlying", {}).get("source_at")
+    at = common.parse_time(received_at).timestamp() if received_at else time.time()
+    opened = common.parse_time(m["open_time"]).timestamp()
+    brief["contract_history"]["summary"] = {}
+    for side, points in contract.get("outcomes", {}).items():
+        ordered = sorted(points, key=lambda point: point["t"])
+        bid, ask = market.quote(m, side, "bid"), market.quote(m, side)
+        mid = (bid + ask) / 2 if bid is not None and ask is not None else None
+        references = {}
+        for seconds in (60, 300, 900):
+            previous = [point for point in ordered if point["t"] <= at - seconds]
+            references[str(seconds // 60) + "m"] = (
+                str(mid - common.dec(previous[-1]["p"]))
+                if mid is not None and previous
+                else None
+            )
+        before_open = [point for point in ordered if point["t"] <= opened]
+        brief["contract_history"]["summary"][side] = {
+            "points": len(ordered),
+            "latest_point_age_seconds": round(at - ordered[-1]["t"], 1)
+            if ordered
+            else None,
+            "points_since_open": sum(point["t"] >= opened for point in ordered),
+            "probability_at_open": before_open[-1]["p"] if before_open else None,
+            "current_live_mid": str(mid) if mid is not None else None,
+            "live_mid_change_from": references,
+        }
     brief["depth"] = {
         "columns": ["price_usd", "contracts"],
         "outcomes": {},
@@ -151,6 +179,7 @@ def market_brief(m):
         brief["depth"]["outcomes"][side] = summary
     brief["context_limits"] = [
         "Recent observed book changes and trade prints are bounded local samples; no guaranteed complete trade tape or verified aggressor attribution",
+        "Public taker-fill summaries add pre-opening and recent participation without trader identities; they do not prove direction",
         "No calibrated probability model or matched past-market outcomes; indicators alone do not establish an edge",
         "Provider identifiers, images and duplicate market metadata omitted; market rules and fee details retained",
     ]

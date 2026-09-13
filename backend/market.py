@@ -269,6 +269,71 @@ def trading_signals(m):
     )
 
 
+def public_trade_activity(rows, condition_id, at=None, truncated=False):
+    """Compact public taker fills without sending trader identities to Codex."""
+    at = time.time() if at is None else at
+    valid = []
+    for row in rows:
+        try:
+            stamp = int(row["timestamp"])
+            price, size = common.dec(row["price"]), common.dec(row["size"])
+            outcome, side = row["outcome"].upper(), row["side"].upper()
+        except (KeyError, TypeError, ValueError, ArithmeticError, AttributeError):
+            continue
+        if (
+            row.get("condition_id") != condition_id
+            or outcome not in ("UP", "DOWN")
+            or side not in ("BUY", "SELL")
+            or not price.is_finite()
+            or not size.is_finite()
+            or not 0 < price < 1
+            or size <= 0
+            or not 0 < stamp <= at + 2
+        ):
+            continue
+        valid.append((stamp, outcome, side, price, size))
+    result = {
+        "source": "Polymarket Data API v2 taker-side fills",
+        "received_at": datetime.fromtimestamp(at, timezone.utc).isoformat(),
+        "rows": len(valid),
+        "truncated_to_latest_1000": bool(truncated),
+        "windows": {},
+        "limitations": "Each fill is reported once on its taker side. Activity is market participation context, not verified trader intent or a probability forecast.",
+    }
+    for seconds in (30, 60, 180, 900):
+        selected = [row for row in valid if at - seconds <= row[0] <= at]
+        window = {
+            "trade_count": len(selected),
+            "contracts": str(sum((row[4] for row in selected), common.dec(0))),
+            "outcomes": {},
+        }
+        for outcome in ("UP", "DOWN"):
+            trades = [row for row in selected if row[1] == outcome]
+            volume = sum((row[4] for row in trades), common.dec(0))
+            window["outcomes"][outcome] = {
+                "trade_count": len(trades),
+                "buy_contracts": str(
+                    sum(
+                        (row[4] for row in trades if row[2] == "BUY"),
+                        common.dec(0),
+                    )
+                ),
+                "sell_contracts": str(
+                    sum(
+                        (row[4] for row in trades if row[2] == "SELL"),
+                        common.dec(0),
+                    )
+                ),
+                "vwap_dollars": str(
+                    sum((row[3] * row[4] for row in trades), common.dec(0)) / volume
+                )
+                if volume
+                else None,
+            }
+        result["windows"][str(seconds) + "s"] = window
+    return result
+
+
 def trade_fee(m, quantity, price):
     rate = common.dec(m["fee_rate"])
     if not rate.is_finite() or not 0 <= rate <= 1:

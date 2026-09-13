@@ -282,6 +282,45 @@ def run():
     assert detailed["depth"]["outcomes"]["UP"]["asks"]["omitted_levels"] == 10
     assert detailed["depth"]["outcomes"]["UP"]["asks"]["total_contracts"] == "20"
     assert len(detailed["contract_history"]["outcomes"]["UP"]) == 61
+    assert detailed["contract_history"]["summary"]["UP"]["points"] == 61
+    assert set(
+        detailed["contract_history"]["summary"]["UP"]["live_mid_change_from"]
+    ) == {"1m", "5m", "15m"}
+    activity = market.public_trade_activity(
+        [
+            {
+                "condition_id": m["condition_id"],
+                "timestamp": 990,
+                "outcome": "Up",
+                "side": "BUY",
+                "price": ".6",
+                "size": "5",
+            },
+            {
+                "condition_id": m["condition_id"],
+                "timestamp": 980,
+                "outcome": "Down",
+                "side": "SELL",
+                "price": ".4",
+                "size": "2",
+            },
+            {
+                "condition_id": m["condition_id"],
+                "timestamp": 990,
+                "outcome": None,
+                "side": "BUY",
+                "price": ".6",
+                "size": "5",
+            },
+            {"condition_id": "wrong", "timestamp": 990},
+        ],
+        m["condition_id"],
+        at=1000,
+        truncated=True,
+    )
+    assert activity["rows"] == 2 and activity["truncated_to_latest_1000"]
+    assert activity["windows"]["30s"]["contracts"] == "7"
+    assert activity["windows"]["30s"]["outcomes"]["UP"]["vwap_dollars"] == "0.6"
     signals = market.trading_signals(signal_market)
     assert signals["opening_distance_context"]["one_minute_rms_move_usd"] == 1
     assert (

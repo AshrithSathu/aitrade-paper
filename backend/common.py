@@ -21,6 +21,8 @@ GAMMA = "https://gamma-api.polymarket.com"
 
 CLOB = "https://clob.polymarket.com"
 
+DATA_API = "https://data-api.polymarket.com"
+
 ASSETS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"]
 
 DEFAULTS = dict(

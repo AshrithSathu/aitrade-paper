@@ -53,7 +53,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 
 ## Data and persistence
 
-PostgreSQL stores received BTC Chainlink 60-second TWAP observations for 24 hours. There is no guaranteed historical backfill. AI receives structured recent candles, broader history, book depth, fees and account context; see [AI context](docs/AI_CONTEXT.md).
+PostgreSQL stores received BTC Chainlink 60-second TWAP observations for 24 hours. There is no guaranteed historical backfill. AI receives structured recent candles, broader history, live and public market activity, book depth, fees and account context; see [AI context](docs/AI_CONTEXT.md).
 
 The volume paths remain unchanged:
 - `data/polymarket/`: 15-minute account and reviews.

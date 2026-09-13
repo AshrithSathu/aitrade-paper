@@ -13,13 +13,14 @@ The prompt is a structured decision brief, not a provider response dump. Prices 
 | Both full order books | Top 10 nonzero levels per bid/ask, whole-book totals, total/omitted level counts, depth within 1/3/5 cents | Preserve local liquidity shape and reveal what was omitted |
 | Best quotes and quantities | Exact prices and sizes, timestamps | Paper execution is limited to the displayed best ask |
 | Fees and minimums | Fee details, current rate, contract minimum and tick size | Trade cost and executable limits |
-| Both contract-price histories | All returned points in compact timestamp/price tables | Preserve probability movements separately from BTC/USD |
+| Both contract-price histories | All returned points in compact timestamp/price tables, refreshed after opening before the review | Preserve probability movements separately from BTC/USD |
 | Provider volume/liquidity | Selected original aggregate metrics, labeled as possibly lagging | Participation context, not underlying traded volume |
+| Public market trades | Aggregated 30-second, 1/3/15-minute taker-side counts, contracts, buys, sells and VWAP by outcome | Adds pre-opening and recent participation without trader identities or a raw trade dump |
 | Account | Cash, equity, results, open/pending positions, spending limits and timed-run/profit controls | Existing exposure and constraints |
 | Recent decisions/events | Latest ten events, including actions; long reason text capped at 500 characters | Recent execution feedback without recursive prompt growth |
 | Provider IDs, images, nested event copies, operational flags | Omitted | Duplicated or unrelated to entry decisions; execution still validates identifiers internally |
 
-Not collected: historical book changes, aggressor trade flow, independently verified exchange volume, or a calibrated probability baseline from matched resolved markets. These limitations are explicit in the brief. Static book size must not be treated as guaranteed fills or inferred order flow.
+Not collected: independently verified aggressor intent, exchange spot volume, or a calibrated probability baseline from matched resolved markets. These limitations are explicit in the brief. Static book size and reported trade sides must not be treated as guaranteed fills or forecasts.
 
 Full books remain in engine memory for validation. Database price observations have 24-hour retention. Saved review files contain the exact decision brief sent to AI. A summary is not a backup of every provider field.
 

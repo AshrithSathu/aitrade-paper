@@ -452,6 +452,7 @@ class Feed:
     def __init__(self):
         self.markets = {}
         self.histories = {}
+        self.activities = {}
         self.chainlink = Chainlink()
         self.streams = {}
         atexit.register(self.close)
@@ -536,9 +537,21 @@ class Feed:
         else:
             m = cached[1]
         m = copy.deepcopy(m)
+        elapsed = (common.now() - common.parse_time(m["open_time"])).total_seconds()
+        # Start the live book first so slower history reads do not shorten flow coverage.
+        stream = self.streams.get(key)
+        if (
+            not stream
+            or stream.market["ticker"] != slug
+            or stream.process.poll() is not None
+        ):
+            if stream:
+                stream.close()
+            stream = BookStream(m)
+            self.streams[key] = stream
         # History is contract probability history, never mislabeled as BTC/USD history.
         h = self.histories.get(slug)
-        if not h or time.monotonic() - h[0] >= 60:
+        if not h or (not h[2] and elapsed >= 10):
             try:
                 history = {
                     side: get_json(
@@ -567,9 +580,14 @@ class Feed:
                         received_at=common.now().isoformat(),
                         outcomes=history,
                     ),
+                    elapsed >= 10,
                 )
             except Exception as exc:
-                h = (time.monotonic(), {"error": str(exc)})
+                h = (
+                    (h[0], {**h[1], "refresh_error": str(exc)}, True)
+                    if h and not h[1].get("error")
+                    else (time.monotonic(), {"error": str(exc)}, elapsed >= 10)
+                )
             self.histories = {
                 key: value
                 for key, value in self.histories.items()
@@ -577,17 +595,43 @@ class Feed:
             }
             self.histories[slug] = h
         m["contract_history"] = copy.deepcopy(h[1])
-        stream = self.streams.get(key)
-        if (
-            not stream
-            or stream.market["ticker"] != slug
-            or stream.process.poll() is not None
-        ):
-            if stream:
-                stream.close()
-            stream = BookStream(m)
-            self.streams[key] = stream
         stream.snapshot(m)
+        activity = self.activities.get(slug)
+        if not activity or (not activity[2] and elapsed >= 10):
+            try:
+                response = get_json(
+                    common.DATA_API
+                    + "/v2/trades?"
+                    + urllib.parse.urlencode(
+                        {
+                            "condition": m["condition_id"],
+                            "limit": 1000,
+                            "taker_only": "true",
+                        }
+                    )
+                )
+                rows, paging = response["data"], response["pagination"]
+                if not isinstance(rows, list) or not isinstance(paging, dict):
+                    raise ValueError("Invalid public trade activity")
+                result = market.public_trade_activity(
+                    rows,
+                    m["condition_id"],
+                    truncated=paging.get("has_more") is True,
+                )
+            except Exception as exc:
+                result = (
+                    {**activity[1], "refresh_error": str(exc)}
+                    if activity and not activity[1].get("error")
+                    else {"error": str(exc)}
+                )
+            activity = (time.monotonic(), result, elapsed >= 10)
+            self.activities = {
+                key: value
+                for key, value in self.activities.items()
+                if time.monotonic() - value[0] < 3600
+            }
+            self.activities[slug] = activity
+        m["public_trade_activity"] = copy.deepcopy(activity[1])
         m["underlying"] = self.chainlink.underlying(asset, m)
         m["floor_strike"] = m["underlying"]["opening_price"]
         m["signals"] = market.trading_signals(m)
