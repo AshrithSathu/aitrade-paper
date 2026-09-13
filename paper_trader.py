@@ -231,7 +231,7 @@ class Chainlink:
                 try:
                     message=json.loads(line)
                     if message.get('error'):self.error=message['error'];continue
-                    ticks=parse_twap(message)
+                    ticks=[tick for tick in parse_twap(message) if tick[0]=='BTC']
                     if ticks:self.history.append(ticks);self.error=None
                 except Exception:self.error='Chainlink history write failed'
             self.error='Chainlink reader stopped'
