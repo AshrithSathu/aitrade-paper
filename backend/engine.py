@@ -80,7 +80,7 @@ class Engine:
                 execution_allowed=not self.state["paused"]
                 and trigger == "market_entry_review",
                 review_assets=list(self.config["assets"] if assets is None else assets),
-                review_policy=f"One review at minute {int(self.config['market_minutes']) / 5:g} (60-second dispatch window); WAIT/error skips market; hold entries to official settlement",
+                review_policy="One review starting 5 seconds after market opening (60-second dispatch window); WAIT/error skips market; hold entries to official settlement",
                 strategy={
                     k: v
                     for k, v in self.config.items()
@@ -127,9 +127,9 @@ class Engine:
             and m.get("market_minutes", 15) == int(self.config["market_minutes"])
             and asset not in self.state["positions"]
             and self.state["reviewed_markets"].get(asset) != m["ticker"]
-            and int(self.config["market_minutes"]) * 12
+            and 5
             <= (common.now() - common.parse_time(m["open_time"])).total_seconds()
-            < int(self.config["market_minutes"]) * 12 + 60
+            < 5 + 60
             and self.ready(asset, history=True)
         )
 
@@ -510,9 +510,9 @@ class Engine:
                 else "REVIEW_USED"
                 if s["reviewed_markets"].get(a) == m["ticker"]
                 else "SKIPPED_WINDOW"
-                if elapsed >= int(c["market_minutes"]) * 12 + 60
+                if elapsed >= 5 + 60
                 else "WAIT_REVIEW_TIME"
-                if elapsed < int(c["market_minutes"]) * 12
+                if elapsed < 5
                 else "READY_FOR_REVIEW"
                 if self.ready(a, history=True)
                 else "WAIT_DATA"

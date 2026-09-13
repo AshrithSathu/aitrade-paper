@@ -104,9 +104,7 @@ function render(update) {
   const settings = d.settings;
   $("markettitle").textContent = "Bitcoin · " + selectedMinutes + " minutes";
   $("reviewpolicy").textContent =
-    "One review at minute " +
-    (selectedMinutes === "5" ? "1" : "3") +
-    ". Enter Up, Down, or skip. Trades stay open until settlement.";
+    "One review starting 5 seconds after opening, once data is ready. Enter Up, Down, or skip. Trades stay open until settlement.";
   for (const [mode, info] of Object.entries(d.modes)) {
     $("mode" + mode).textContent = info.halted
       ? "Limit reached"

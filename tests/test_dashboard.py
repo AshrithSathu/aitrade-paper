@@ -478,15 +478,15 @@ def run():
             patch.object(common, "now", side_effect=lambda: clock[0]),
             patch.object(e.pool, "submit", side_effect=lambda *args: Future()) as calls,
         ):
-            fresh(180)
+            fresh(5)
             assert calls.call_count == 0 and s["paused"]
             assert (
                 not e.request_review("manual_account_review") and calls.call_count == 0
             )
             s["paused"] = False
-            fresh(179)
+            fresh(4)
             assert calls.call_count == 0
-            fresh(180)
+            fresh(5)
             assert calls.call_count == 1 and e.future is not None
             assert e.last_codex["payload"]["phases"]["BTC"] == "READY_FOR_REVIEW"
             assert (
@@ -494,11 +494,11 @@ def run():
                 == f.data["BTC"]["ticker"]
             )
             finish()
-            fresh(200)
+            fresh(25)
             assert calls.call_count == 1 and not s["positions"]  # WAIT consumes market
             s["paused"] = True
             s["paused"] = False
-            fresh(220)
+            fresh(45)
             assert calls.call_count == 1
             restored = trading.Engine(common.load_state("1000"), c, f)
             restored.snapshots = copy.deepcopy(e.snapshots)
@@ -510,30 +510,30 @@ def run():
             assert e.request_review("manual_account_review")
             finish("ENTER_UP")
             assert not s["positions"] and not s["reviewed_markets"]
-            fresh(230)
+            fresh(55)
             assert e.future is not None
             e.future.set_exception(RuntimeError("AI unavailable"))
             e.complete_review()
             n = calls.call_count
-            fresh(235)
+            fresh(60)
             assert calls.call_count == n  # errors never retry
             # Missing data through the dispatch window means zero calls, even after data recovers.
             s["reviewed_markets"].clear()
             f.data["BTC"]["underlying"]["error"] = "missing opening"
-            fresh(180)
+            fresh(5)
             assert calls.call_count == n
             f.data["BTC"]["underlying"].pop("error")
-            fresh(240)
+            fresh(65)
             assert calls.call_count == n
             # Preview and pause/resume invalidation cannot grant trading authority.
-            fresh(180)
+            fresh(5)
             original = e.last_codex["payload"]
             s["paused"] = True
             finish("ENTER_UP")
             assert not s["positions"]
             s["paused"] = False
             s["reviewed_markets"].clear()
-            fresh(180)
+            fresh(5)
             e.epoch += 1
             finish("ENTER_UP")
             assert not s["positions"]
@@ -557,11 +557,11 @@ def run():
             e.snapshots["BTC"]["yes_ask_size_fp"] = "0"
             apply(decision())
             assert not s["positions"]
-            fresh(181)
+            fresh(6)
             e.snapshots["BTC"]["underlying"]["history"] = {"samples": 0}
             apply(decision())
             assert not s["positions"]
-            fresh(182)
+            fresh(7)
             e.config["daily_loss"] = common.dec("-.01")
             apply(decision())
             assert not s["positions"]
@@ -573,7 +573,7 @@ def run():
             )
             assert common.dec(s["cash"]) == 1000 - cost
             f.data["BTC"]["yes_bid_dollars"] = ".01"
-            fresh(200)
+            fresh(25)
             assert "BTC" in s["positions"]
             apply(decision("EXIT", "0", "0"))
             assert "BTC" in s["positions"]  # no early exit path
@@ -596,12 +596,12 @@ def run():
             start = clock[0]
             f.data["BTC"]["ticker"] = "btc-updown-15m-1789263900"
             s["paused"] = False
-            fresh(180)
+            fresh(5)
             assert e.future is not None
             finish("ENTER_DOWN")
             assert s["positions"]["BTC"]["side"] == "DOWN"
             n = calls.call_count
-            fresh(200)
+            fresh(25)
             assert calls.call_count == n
             s["paused"] = True
             fresh(900)

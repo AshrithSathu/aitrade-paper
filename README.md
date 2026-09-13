@@ -45,7 +45,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 
 - Both accounts always boot stopped. Each has its own balance, limits, run deadline and review history.
 - Start enables a timed session, including waiting for data. AI reviews and entries still require fresh validated data.
-- Reviews run once at minute 1 for 5-minute markets and minute 3 for 15-minute markets, with a 60-second dispatch window. Missed windows, WAIT decisions and errors skip that market.
+- Reviews start 5 seconds after opening for both durations, with a 60-second dispatch window (5–under 65 seconds) to wait for validated data. Missed windows, WAIT decisions and errors skip that market.
 - Codex has a 25-second timeout. Decisions older than 30 seconds are rejected. Pause cancels AI; open trades continue to official settlement.
 - Account loss limits and profit targets stop new entries. There is no per-position early-exit stop-loss.
 - The dashboard uses a persistent SSE connection. Start/Stop and settings use HTTP POST.
