@@ -310,16 +310,46 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return
         if path == "/api/history":
+            try:
+                page = int(parse_qs(urlsplit(self.path).query).get("page", ["1"])[0])
+                if page < 1:
+                    raise ValueError
+            except ValueError:
+                return self.send(400, {"error": "Page must be a positive number"})
             with lock:
                 events = engine.state["events"]
+                decisions = [event for event in events if event.get("kind") == "codex"]
+                pages = max(1, (len(decisions) + 19) // 20)
+                page = min(page, pages)
+                selected = list(reversed(decisions))[(page - 1) * 20 : page * 20]
+                tickers = {
+                    decision.get("ticker")
+                    for event in selected
+                    for decision in event.get("decisions", [])
+                }
                 data = {
                     "version": len(events),
-                    "events": [
-                        copy.deepcopy(event)
+                    "page": page,
+                    "pages": pages,
+                    "total": len(decisions),
+                    "decisions": copy.deepcopy(selected),
+                    "entries": [
+                        event["ticker"]
                         for event in events
-                        if event.get("kind")
-                        in ("codex", "review_outcome", "entry", "exit")
-                    ][-200:],
+                        if event.get("kind") == "entry"
+                        and event.get("ticker") in tickers
+                    ],
+                    "outcomes": {
+                        event["ticker"]: copy.deepcopy(event["payouts"])
+                        for event in events
+                        if event.get("kind") == "review_outcome"
+                        and event.get("ticker") in tickers
+                    },
+                    "trades": copy.deepcopy(
+                        [event for event in events if event.get("kind") == "exit"][
+                            -100:
+                        ]
+                    ),
                 }
             return self.send(200, data)
         self.send(404, {"error": "Not found"})

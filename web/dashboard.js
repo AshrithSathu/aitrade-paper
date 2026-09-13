@@ -26,7 +26,16 @@ let selectedMinutes = durationFromUrl(),
   actionBusy = false;
 const loadedSettings = new Set();
 const loadedModes = new Set();
-const histories = { 5: [], 15: [] };
+const emptyHistory = () => ({
+  decisions: [],
+  entries: [],
+  outcomes: {},
+  trades: [],
+  page: 1,
+  pages: 1,
+  total: 0,
+});
+const histories = { 5: emptyHistory(), 15: emptyHistory() };
 const historyVersions = { 5: null, 15: null };
 const historyLoading = new Set();
 let latest = null;
@@ -250,8 +259,8 @@ function render(update) {
 }
 
 function renderHistory(minutes) {
-  const events = histories[minutes];
-  const exits = events.filter((e) => e.kind === "exit");
+  const history = histories[minutes];
+  const exits = history.trades;
   $("trades").innerHTML = exits.length
     ? exits
         .slice()
@@ -263,18 +272,15 @@ function renderHistory(minutes) {
         .join("")
     : '<tr><td colspan="6">No closed trades yet.</td></tr>';
   const outcomes = Object.fromEntries(
-    events
-      .filter((e) => e.kind === "review_outcome")
-      .map((e) => [e.ticker, e.payouts.UP === "1" ? "Up won" : "Down won"]),
+    Object.entries(history.outcomes).map(([ticker, payouts]) => [
+      ticker,
+      payouts.UP === "1" ? "Up won" : "Down won",
+    ]),
   );
-  const entries = new Set(
-    events.filter((e) => e.kind === "entry").map((e) => e.ticker),
-  );
-  const decisions = events
-    .filter((e) => e.kind === "codex")
+  const entries = new Set(history.entries);
+  const decisions = history.decisions
     .flatMap((e) => e.decisions.map((decision) => ({ ...decision, at: e.at })))
-    .slice(-20)
-    .reverse();
+    .slice(0, 20);
   $("decisionhistory").innerHTML = decisions.length
     ? decisions
         .map((decision) => {
@@ -295,13 +301,23 @@ function renderHistory(minutes) {
         })
         .join("")
     : "No decisions yet.";
+  $("decisionpage").textContent = history.total
+    ? `Page ${history.page} of ${history.pages} · ${history.total} decisions`
+    : "No decisions";
+  $("newerdecisions").disabled =
+    history.page <= 1 || historyLoading.has(minutes);
+  $("olderdecisions").disabled =
+    history.page >= history.pages || historyLoading.has(minutes);
 }
 
-async function loadHistory(minutes) {
+async function loadHistory(minutes, page = 1) {
   if (historyLoading.has(minutes)) return;
   historyLoading.add(minutes);
+  if (selectedMinutes === minutes) renderHistory(minutes);
   try {
-    const response = await fetch("/api/history?minutes=" + minutes),
+    const response = await fetch(
+        "/api/history?minutes=" + minutes + "&page=" + page,
+      ),
       data = await response.json();
     if (!response.ok) throw Error(data.error);
     histories[minutes] = data.events;
@@ -311,8 +327,13 @@ async function loadHistory(minutes) {
     // Keep the last successful history; the live connection will retry later.
   } finally {
     historyLoading.delete(minutes);
+    if (selectedMinutes === minutes) renderHistory(minutes);
   }
 }
+$("newerdecisions").onclick = () =>
+  loadHistory(selectedMinutes, histories[selectedMinutes].page - 1);
+$("olderdecisions").onclick = () =>
+  loadHistory(selectedMinutes, histories[selectedMinutes].page + 1);
 const stream = new EventSource("/api/events");
 stream.onmessage = (event) => render(JSON.parse(event.data));
 stream.onerror = () => {

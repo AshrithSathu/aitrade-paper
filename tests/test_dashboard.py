@@ -790,6 +790,8 @@ def run():
                     assert content
                     if route == "/":
                         assert b'id="decisionhistory"' in content
+                        assert b'id="newerdecisions"' in content
+                        assert b'id="olderdecisions"' in content
                     if route == "/dashboard.js":
                         assert b'$("pause" + mode).disabled' not in content
                         assert b'$("pause" + m).disabled' not in content
@@ -798,9 +800,9 @@ def run():
                         )
                         assert b'url.searchParams.set("minutes", minutes)' in content
                         assert b"window.onpopstate" in content
-                        assert b'kind === "review_outcome"' in content
-                        assert b'kind === "codex"' in content
-                        assert b'fetch("/api/history?minutes=" + minutes)' in content
+                        assert b"history.outcomes" in content
+                        assert b"history.decisions" in content
+                        assert b'"&page=" + page' in content
             req = urllib.request.Request(
                 f"http://127.0.0.1:{server.server_port}/api/status?minutes=5",
                 headers={"Host": "127.0.0.1:8765"},
@@ -816,7 +818,47 @@ def run():
                 headers={"Host": "127.0.0.1:8765"},
             )
             with urllib.request.urlopen(req) as response:
-                assert json.loads(response.read()) == {"version": 0, "events": []}
+                assert json.loads(response.read()) == {
+                    "version": 0,
+                    "page": 1,
+                    "pages": 1,
+                    "total": 0,
+                    "decisions": [],
+                    "entries": [],
+                    "outcomes": {},
+                    "trades": [],
+                }
+            events = dashboard.engines["5"].state["events"]
+            events.extend(
+                {
+                    "at": f"2026-01-01T00:00:{number:02d}Z",
+                    "kind": "codex",
+                    "decisions": [{"ticker": f"market-{number}"}],
+                }
+                for number in range(21)
+            )
+            events.extend(
+                [
+                    {"kind": "entry", "ticker": "market-0"},
+                    {
+                        "kind": "review_outcome",
+                        "ticker": "market-0",
+                        "payouts": {"UP": "1", "DOWN": "0"},
+                    },
+                ]
+            )
+            dashboard.publish(dashboard.engines["5"], dashboard.views["5"])
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/history?minutes=5&page=2",
+                headers={"Host": "127.0.0.1:8765"},
+            )
+            with urllib.request.urlopen(req) as response:
+                history = json.loads(response.read())
+                assert history["page"] == history["pages"] == 2
+                assert history["total"] == 21
+                assert history["decisions"][0]["decisions"][0]["ticker"] == "market-0"
+                assert history["entries"] == ["market-0"]
+                assert history["outcomes"]["market-0"]["UP"] == "1"
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
             )

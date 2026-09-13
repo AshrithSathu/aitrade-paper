@@ -154,7 +154,14 @@
         </div>
         <div class="panel">
           <h2>AI decision history</h2>
-          <div id="decisionhistory" aria-live="polite">No decisions yet.</div>
+          <div id="decisionhistory" class="decision-scroll" aria-live="polite">
+            No decisions yet.
+          </div>
+          <div class="history-pages">
+            <button id="newerdecisions" class="secondary">Newer</button>
+            <span id="decisionpage" class="sub">No decisions</span>
+            <button id="olderdecisions" class="secondary">Older</button>
+          </div>
         </div>
         <div class="panel">
           <h2>Open trade</h2>

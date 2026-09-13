@@ -198,6 +198,20 @@ td {
 .scroll {
   overflow: auto;
 }
+.decision-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.history-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.history-pages button {
+  padding: 8px 13px;
+}
 #activity {
   max-height: 240px;
   overflow: auto;

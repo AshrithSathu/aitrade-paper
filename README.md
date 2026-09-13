@@ -62,6 +62,6 @@ The volume paths remain unchanged:
 
 Detailed review files expire after 30 days. Trade/account history remains. Live books stay in memory. Account writes are atomic; price history is shared between accounts.
 
-The browser never receives raw order books, provider metadata, signal history or AI input payloads. Those remain inside the trading service. The browser caches the latest trade/decision history for each tab; PostgreSQL remains the only database, so Redis is unnecessary at this traffic level.
+The browser never receives raw order books, provider metadata, signal history or AI input payloads. Those remain inside the trading service. The browser caches one 20-decision history page for each tab; PostgreSQL remains the only database, so Redis is unnecessary at this traffic level.
 
 See [deployment](docs/RAILWAY_DEPLOYMENT.md) and [venue research](docs/POLYMARKET_RESEARCH.md).
