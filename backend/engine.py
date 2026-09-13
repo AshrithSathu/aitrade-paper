@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from . import ai, common, feeds, market, storage
 
@@ -245,9 +246,14 @@ class Engine:
             ai.validate_decisions(response)
             self.last_codex.update(status="complete", response=response)
             original = self.last_codex["payload"]
-            self.emit(
-                "codex", reason=response["reason"], decisions=response["decisions"]
-            )
+            decisions = copy.deepcopy(response["decisions"])
+            if self.config["reverse_decisions"]:
+                for decision in decisions:
+                    decision["execution_action"] = {
+                        "ENTER_UP": "ENTER_DOWN",
+                        "ENTER_DOWN": "ENTER_UP",
+                    }.get(decision["action"], decision["action"])
+            self.emit("codex", reason=response["reason"], decisions=decisions)
             if original["execution_allowed"]:
                 for d in response["decisions"]:
                     snapshot = original["markets"][d["asset"]]
@@ -274,6 +280,19 @@ class Engine:
         common.atomic_json(self.review_path, self.last_codex)
         common.atomic_json(self.data_dir / "codex-latest.json", self.last_codex)
         self.future = None
+
+    def reset(self):
+        balance = self.config["balance"]
+        self.state.clear()
+        self.state.update(common.initial_state(balance))
+        self.last_codex = None
+        self.epoch += 1
+        self.review_epoch = self.epoch
+        self.settle_checked.clear()
+        self.saved_state = None
+        shutil.rmtree(self.data_dir / "codex-reviews", ignore_errors=True)
+        (self.data_dir / "codex-latest.json").unlink(missing_ok=True)
+        self.save_state(force=True)
 
     def close(self, container, key, price, reason, fee=Decimal(0)):
         s = self.state
@@ -419,12 +438,14 @@ class Engine:
             <= float(common.dec(d["valid_for_seconds"]))
         ):
             return reject("Chainlink TWAP did not remain current during the AI review")
-        side = "UP" if action == "ENTER_UP" else "DOWN"
+        ai_side = "UP" if action == "ENTER_UP" else "DOWN"
+        reversed_decision = self.config["reverse_decisions"]
+        side = {"UP": "DOWN", "DOWN": "UP"}[ai_side] if reversed_decision else ai_side
         price = market.quote(m, side)
         estimated_up = common.dec(d["estimated_up_probability"])
-        estimated_side = estimated_up if side == "UP" else 1 - estimated_up
+        estimated_side = estimated_up if ai_side == "UP" else 1 - estimated_up
         breakeven = common.dec(
-            snapshot["signals"]["books"][side]["breakeven_win_probability"]
+            snapshot["signals"]["books"][ai_side]["breakeven_win_probability"]
         )
         if estimated_side <= breakeven:
             return reject("AI probability estimate does not clear fees")
@@ -451,8 +472,10 @@ class Engine:
             )
         if adverse_contract_drift is None:
             return reject(f"{side} ask became unavailable")
-        ai_price_limit = common.dec(d["limit_price"])
-        price_limit = min(Decimal(".99"), ai_price_limit * Decimal("1.1"))
+        base_price_limit = (
+            old_price if reversed_decision else common.dec(d["limit_price"])
+        )
+        price_limit = min(Decimal(".99"), base_price_limit * Decimal("1.1"))
         if not 0 < price < 1:
             return reject(f"{side} ask became unavailable")
         if price > price_limit:
@@ -467,18 +490,28 @@ class Engine:
                 f"{side} ask rose ${adverse_contract_drift:.2f}; maximum allowed was ${contract_cap:.2f}"
             )
         live_breakeven = price + market.trade_fee(m, Decimal(1), price)
-        if estimated_side <= live_breakeven:
+        if not reversed_decision and estimated_side <= live_breakeven:
             return reject("Live ask no longer has positive fee-adjusted edge")
         qty = common.dec(d["quantity"])
+        if reversed_decision:
+            unit_cost = price + market.trade_fee(m, Decimal(1), price)
+            affordable = (
+                min(self.config["max_trade"], common.dec(s["cash"])) / unit_cost
+            )
+            qty = min(
+                qty,
+                self.config["size"],
+                affordable.quantize(Decimal(".01"), rounding=ROUND_DOWN),
+            )
         depth = m.get(("yes" if side == "UP" else "no") + "_ask_size_fp")
         if depth is None or common.dec(depth) < qty:
             return reject("Insufficient displayed entry size")
         fee = market.trade_fee(m, qty, price)
         cost = price * qty + fee
         c = self.config
-        if qty < common.dec(m["order_limits"][side]["minimum"]) or common.dec(
-            d["limit_price"]
-        ) % common.dec(m["order_limits"][side]["tick"]):
+        if qty < common.dec(m["order_limits"][side]["minimum"]) or (
+            base_price_limit % common.dec(m["order_limits"][side]["tick"])
+        ):
             return reject("AI quantity or limit price violates market minimum/tick")
         if qty > c["size"] or cost > c["max_trade"] or cost > common.dec(s["cash"]):
             return reject("Quantity, spending cap or cash exceeded")
@@ -500,6 +533,8 @@ class Engine:
             asset=a,
             ticker=d["ticker"],
             side=side,
+            ai_side=ai_side,
+            reverse_mode=reversed_decision,
             entry=str(price),
             entry_fee=str(fee),
             size=str(qty),

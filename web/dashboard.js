@@ -58,6 +58,7 @@ function selectDuration(minutes, historyMethod) {
     $("account" + m).hidden = m !== minutes;
     $("limits" + m).hidden = m !== minutes;
   }
+  $("exporthistory").href = "/api/export?minutes=" + minutes;
   if (historyMethod) {
     const url = new URL(location.href);
     url.searchParams.set("minutes", minutes);
@@ -83,6 +84,12 @@ async function action(path, body = {}, minutes = selectedMinutes) {
       }),
       d = await r.json();
     if (!r.ok) throw Error(d.error);
+    if (path === "reset") {
+      histories[minutes] = emptyHistory();
+      historyVersions[minutes] = null;
+      loadedModes.delete(minutes);
+      loadHistory(minutes);
+    }
     $("saved").textContent = path === "settings" ? "Limits saved." : "Done.";
   } catch (e) {
     $(path === "settings" ? "saved" + minutes : "saved").textContent =
@@ -108,6 +115,14 @@ for (const m of ["5", "15"]) {
       );
   };
   $("pause" + m).onclick = () => action("pause", {}, m);
+  $("clear" + m).onclick = () => {
+    if (
+      confirm(
+        `Clear all ${m}-minute decisions, trades and account results? This cannot be undone.`,
+      )
+    )
+      action("reset", { confirm: "CLEAR" }, m);
+  };
 }
 $("codexlogin").onclick = () => action("codex/login");
 for (const minutes of ["5", "15"]) {
@@ -122,6 +137,7 @@ for (const minutes of ["5", "15"]) {
       market_minutes: minutes,
     };
     body.daily_loss = String(-Math.abs(Number(body.daily_loss)));
+    body.reverse_decisions = form.elements.reverse_decisions.checked;
     action("settings", body, minutes);
   };
 }
@@ -150,6 +166,7 @@ function render(update) {
     $("start" + mode).disabled = !info.paused || !!info.halted;
     $("runhours" + mode).disabled = !info.paused;
     $("profittarget" + mode).disabled = !info.paused;
+    $("clear" + mode).disabled = !info.paused;
     if (!loadedModes.has(mode)) {
       $("runhours" + mode).value = info.run_hours || 12;
       $("profittarget" + mode).value = info.profit_target_percent || 0;
@@ -164,6 +181,7 @@ function render(update) {
       for (const k of ["balance", "max_trade", "size", "daily_loss"])
         form.elements[k].value =
           k === "daily_loss" ? Math.abs(Number(limits[k])) : limits[k];
+      form.elements.reverse_decisions.checked = limits.reverse_decisions;
       loadedSettings.add(minutes);
     }
     const used = Math.max(0, -Number(account.account.realized_pnl)),
@@ -305,12 +323,17 @@ function renderHistory(minutes) {
   $("decisionhistory").innerHTML = decisions.length
     ? decisions
         .map((decision) => {
-          const action =
+          const aiAction =
             decision.action === "WAIT"
               ? "Skipped"
               : decision.action === "ENTER_UP"
                 ? "Enter Up"
                 : "Enter Down";
+          const executionAction = decision.execution_action;
+          const action =
+            executionAction && executionAction !== decision.action
+              ? `${aiAction} → Took ${executionAction === "ENTER_UP" ? "Up" : "Down"}`
+              : aiAction;
           const entry = entries.get(decision.ticker),
             result = results.get(decision.ticker),
             pnl = Number(result?.pnl),
@@ -416,7 +439,7 @@ setInterval(() => {
 }, 15000);
 if ("serviceWorker" in navigator)
   window.addEventListener("load", () =>
-    navigator.serviceWorker.register("/service-worker.js?v=4", {
+    navigator.serviceWorker.register("/service-worker.js?v=5", {
       updateViaCache: "none",
     }),
   );

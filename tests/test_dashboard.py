@@ -772,6 +772,52 @@ def run():
             e.settle_checked.clear()
             fresh(901)
             assert s["trades"] == 2 and s["losses"] == 1
+            # Reverse mode keeps the AI answer intact, executes the other side and
+            # shrinks the contracts when that side costs more.
+            s.clear()
+            s.update(common.initial_state("1000"))
+            s["paused"] = False
+            e.config.update(
+                reverse_decisions=True,
+                size=common.dec("50"),
+                max_trade=common.dec("10"),
+            )
+            reversed_market = copy.deepcopy(f.data["BTC"])
+            reversed_market.update(
+                open_time=clock[0].isoformat(),
+                close_time=(clock[0] + timedelta(minutes=15)).isoformat(),
+                received_at=clock[0].isoformat(),
+                yes_ask_dollars=".80",
+                no_ask_dollars=".80",
+            )
+            reversed_market["underlying"]["source_at"] = clock[0].isoformat()
+            e.snapshots = {"BTC": reversed_market}
+            original = e.payload("market_entry_review")
+            assert "reverse_decisions" not in original["strategy"]
+            e.last_codex = {"status": "running", "payload": original, "response": None}
+            e.review_path = Path(folder) / "codex-reviews" / "reverse.json"
+            e.review_epoch = e.epoch
+            e.future = Future()
+            e.future.set_result(
+                {
+                    "decisions": [decision("ENTER_UP", "20", ".85")],
+                    "reason": "fixture",
+                }
+            )
+            e.complete_review()
+            assert "BTC" in s["positions"], s["events"]
+            position = s["positions"]["BTC"]
+            assert position["side"] == "DOWN" and position["ai_side"] == "UP"
+            assert common.dec(position["size"]) < 20
+            assert common.dec(s["events"][-1]["cost"]) <= 10
+            codex_event = next(
+                event for event in s["events"] if event["kind"] == "codex"
+            )
+            assert codex_event["decisions"][0]["action"] == "ENTER_UP"
+            assert codex_event["decisions"][0]["execution_action"] == "ENTER_DOWN"
+            e.reset()
+            assert s["paused"] and not s["events"] and s["cash"] == "1000"
+            assert e.config["reverse_decisions"] is True
         # A real local subprocess stands in for Codex; pause must stop it and block previews.
         launched = threading.Event()
         processes = []
@@ -816,6 +862,7 @@ def run():
             dict(size="NaN"),
             dict(size="1.001"),
             dict(daily_loss="1"),
+            dict(reverse_decisions="yes"),
             dict(codex_interval="60"),
         ]:
             try:
@@ -954,6 +1001,9 @@ def run():
                         assert b'id="newerdecisions"' in content
                         assert b'id="olderdecisions"' in content
                         assert b'rel="manifest"' in content
+                        assert b'id="exporthistory"' in content
+                        assert b'id="clear5"' in content
+                        assert b'name="reverse_decisions"' in content
                     if route == "/dashboard.js":
                         assert b'$("pause" + mode).disabled' not in content
                         assert b'$("pause" + m).disabled' not in content
@@ -968,6 +1018,7 @@ def run():
                         assert b'"&page=" + page' in content
                         assert b'addEventListener("visibilitychange"' in content
                         assert b"navigator.serviceWorker.register" in content
+                        assert b"body.reverse_decisions" in content
                     if route == "/manifest.webmanifest":
                         manifest = json.loads(content)
                         assert manifest["display"] == "standalone"
@@ -1040,6 +1091,17 @@ def run():
                 assert history["results"][0]["pnl"] == "2.50"
                 assert history["rejections"] == {}
                 assert history["outcomes"]["market-0"]["UP"] == "1"
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/export?minutes=5",
+                headers={"Host": "127.0.0.1:8765"},
+            )
+            with urllib.request.urlopen(req) as response:
+                exported = response.read().decode("utf-8-sig")
+                assert response.headers["Content-Disposition"] == (
+                    'attachment; filename="btc-5-minute-history.csv"'
+                )
+                assert "decision_at,ticker,market_url" in exported
+                assert "market-0,https://polymarket.com/event/market-0" in exported
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
             )
@@ -1100,6 +1162,10 @@ def run():
                     ]
                     == balance
                 )
+            post("reset", "5", {"confirm": "CLEAR"})
+            assert dashboard.engines["5"].state["events"] == []
+            assert dashboard.engines["5"].state["cash"] == "1200"
+            assert dashboard.engines["5"].state["paused"]
 
         finally:
             server.shutdown()

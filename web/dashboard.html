@@ -13,7 +13,7 @@
   />
   <link rel="manifest" href="/manifest.webmanifest?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
-  <link rel="stylesheet" href="/dashboard.css?v=3" />
+  <link rel="stylesheet" href="/dashboard.css?v=4" />
   <header>
     <div>
       <h1>BTC trading</h1>
@@ -56,6 +56,9 @@
           <button id="start5">Start 5-minute</button
           ><button id="pause5" class="secondary">Stop 5-minute</button>
         </div>
+        <button id="clear5" class="danger account-clear">
+          Clear 5-minute data
+        </button>
       </div>
       <div class="panel" id="account15" hidden>
         <div class="row">
@@ -90,6 +93,9 @@
           <button id="start15">Start 15-minute</button
           ><button id="pause15" class="secondary">Stop 15-minute</button>
         </div>
+        <button id="clear15" class="danger account-clear">
+          Clear 15-minute data
+        </button>
       </div>
     </div>
     <div class="tabs" role="tablist" aria-label="Market duration">
@@ -162,7 +168,16 @@
           </details>
         </div>
         <div class="panel">
-          <h2>AI decision history</h2>
+          <div class="row">
+            <h2>AI decision history</h2>
+            <a
+              id="exporthistory"
+              class="button-link"
+              href="/api/export?minutes=5"
+              download
+              >Download Excel CSV</a
+            >
+          </div>
           <div id="decisionhistory" class="decision-scroll" aria-live="polite">
             No decisions yet.
           </div>
@@ -239,6 +254,15 @@
               Loss limit applies across the account, not per day. Zero disables
               it. Reaching a limit blocks new trades; open trades still settle.
             </p>
+            <label class="toggle"
+              ><input name="reverse_decisions" type="checkbox" />
+              <span
+                ><strong>Reverse AI direction</strong
+                ><small
+                  >AI decides normally; code takes the opposite side.</small
+                ></span
+              >
+            </label>
             <button type="submit">Save 5-minute limits</button>
             <p class="sub">
               Pause and wait for open trades to settle before changing limits.
@@ -289,6 +313,15 @@
               Loss limit applies across the account, not per day. Zero disables
               it. Reaching a limit blocks new trades; open trades still settle.
             </p>
+            <label class="toggle"
+              ><input name="reverse_decisions" type="checkbox" />
+              <span
+                ><strong>Reverse AI direction</strong
+                ><small
+                  >AI decides normally; code takes the opposite side.</small
+                ></span
+              >
+            </label>
             <button type="submit">Save 15-minute limits</button>
             <p class="sub">
               Pause and wait for open trades to settle before changing limits.
@@ -304,5 +337,5 @@
       </aside>
     </div>
   </main>
-  <script src="/dashboard.js?v=4"></script>
+  <script src="/dashboard.js?v=5"></script>
 </html>

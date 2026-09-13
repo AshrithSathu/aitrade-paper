@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import csv
 import fcntl
+import io
 import json
 import os
 import random
@@ -97,6 +99,109 @@ def allowed_origins(public_origin):
 
 
 ORIGINS = allowed_origins(os.environ.get("PUBLIC_ORIGIN", ""))
+
+
+def export_csv(events):
+    entries = {e["ticker"]: e for e in events if e.get("kind") == "entry"}
+    results = {e["ticker"]: e for e in events if e.get("kind") == "exit"}
+    rejections = {
+        e["ticker"]: e["reason"] for e in events if e.get("kind") == "decision_rejected"
+    }
+    outcomes = {
+        e["ticker"]: e["payouts"] for e in events if e.get("kind") == "review_outcome"
+    }
+    columns = [
+        "decision_at",
+        "ticker",
+        "market_url",
+        "ai_action",
+        "execution_action",
+        "estimated_up_probability",
+        "estimated_down_probability",
+        "planned_contracts",
+        "limit_price",
+        "max_btc_drift_usd",
+        "max_contract_drift",
+        "ai_reason",
+        "fill_status",
+        "not_filled_reason",
+        "actual_side",
+        "contracts",
+        "entry_price",
+        "entry_fee",
+        "amount_put",
+        "opened_at",
+        "close_time",
+        "official_outcome",
+        "settled_at",
+        "profit_loss",
+    ]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns)
+    writer.writeheader()
+    for event in events:
+        if event.get("kind") != "codex":
+            continue
+        for decision in event.get("decisions", []):
+            ticker = decision.get("ticker")
+            entry = entries.get(ticker, {})
+            result = results.get(ticker, {})
+            payout = outcomes.get(ticker, {})
+            outcome = (
+                "UP"
+                if payout.get("UP") == "1"
+                else "DOWN"
+                if payout.get("DOWN") == "1"
+                else "SPLIT"
+                if payout
+                else "PENDING"
+            )
+            status = (
+                "SETTLED"
+                if result
+                else "FILLED_AWAITING_SETTLEMENT"
+                if entry
+                else "SKIPPED"
+                if decision.get("action") == "WAIT"
+                else "NOT_FILLED"
+            )
+            execution_action = decision.get("execution_action", decision.get("action"))
+            writer.writerow(
+                {
+                    "decision_at": event.get("at"),
+                    "ticker": ticker,
+                    "market_url": f"https://polymarket.com/event/{ticker}"
+                    if ticker
+                    else "",
+                    "ai_action": decision.get("action"),
+                    "execution_action": execution_action,
+                    "estimated_up_probability": decision.get(
+                        "estimated_up_probability"
+                    ),
+                    "estimated_down_probability": decision.get(
+                        "estimated_down_probability"
+                    ),
+                    "planned_contracts": decision.get("quantity"),
+                    "limit_price": decision.get("limit_price"),
+                    "max_btc_drift_usd": decision.get("max_underlying_drift_usd"),
+                    "max_contract_drift": decision.get("max_contract_drift"),
+                    "ai_reason": decision.get("reason", event.get("reason")),
+                    "fill_status": status,
+                    "not_filled_reason": rejections.get(ticker),
+                    "actual_side": entry.get("side")
+                    or ({"ENTER_UP": "UP", "ENTER_DOWN": "DOWN"}.get(execution_action)),
+                    "contracts": entry.get("size"),
+                    "entry_price": entry.get("entry"),
+                    "entry_fee": entry.get("entry_fee"),
+                    "amount_put": entry.get("cost"),
+                    "opened_at": entry.get("opened_at"),
+                    "close_time": entry.get("close_time"),
+                    "official_outcome": outcome,
+                    "settled_at": result.get("at"),
+                    "profit_loss": result.get("pnl"),
+                }
+            )
+    return ("\ufeff" + output.getvalue()).encode()
 
 
 def restore_run(engine):
@@ -222,7 +327,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def send(self, status, data, mime="application/json", cache="no-store"):
+    def send(
+        self, status, data, mime="application/json", cache="no-store", filename=None
+    ):
         body = (
             data if isinstance(data, bytes) else json.dumps(data, default=str).encode()
         )
@@ -230,6 +337,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime)
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
+        if filename:
+            self.send_header(
+                "Content-Disposition", f'attachment; filename="{filename}"'
+            )
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -282,6 +393,15 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 data = status(minutes)
             return self.send(200, data)
+        if path == "/api/export":
+            with lock:
+                data = export_csv(copy.deepcopy(engine.state["events"]))
+            return self.send(
+                200,
+                data,
+                "text/csv; charset=utf-8",
+                filename=f"btc-{minutes}-minute-history.csv",
+            )
         if path == "/api/events":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -470,6 +590,18 @@ class Handler(BaseHTTPRequestHandler):
                     engine.errors = {}
                     if s["halted"] and not engine.limits():
                         s["halted"] = None
+                elif path == "/api/reset":
+                    if body.get("confirm") != "CLEAR":
+                        raise ValueError("Clear confirmation missing")
+                    if (
+                        not idle.wait_for(lambda: not view["busy"], timeout=30)
+                        or not s["paused"]
+                        or engine.future
+                    ):
+                        raise ValueError(
+                            "Stop this account and wait for the current AI review"
+                        )
+                    engine.reset()
                 else:
                     raise ValueError("Unknown action")
                 if not view["busy"]:

@@ -28,6 +28,7 @@ ASSETS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"]
 DEFAULTS = dict(
     assets=["BTC"],
     market_minutes="15",
+    reverse_decisions=False,
     balance="1000",
     size="5",
     daily_loss="-600",
@@ -69,8 +70,14 @@ def validate(values):
     assets = values["assets"]
     if assets != ["BTC"]:
         raise ValueError("Only BTC is enabled")
+    if not isinstance(values["reverse_decisions"], bool):
+        raise ValueError("Reverse AI direction must be on or off")
     try:
-        n = {k: dec(v) for k, v in values.items() if k != "assets"}
+        n = {
+            k: dec(v)
+            for k, v in values.items()
+            if k not in ("assets", "reverse_decisions")
+        }
     except (InvalidOperation, TypeError):
         raise ValueError("Enter valid decimal numbers") from None
     if not all(v.is_finite() for v in n.values()):
@@ -109,6 +116,7 @@ def initial_state(balance):
         pending={},
         sessions={},
         reviewed_markets={},
+        evaluations={},
         phases={},
         events=[],
         halted=None,

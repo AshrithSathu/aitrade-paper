@@ -54,6 +54,25 @@ button.secondary {
   background: #e5ebf2;
   color: #19334d;
 }
+.danger {
+  background: #a53e3e;
+}
+.account-clear {
+  width: 100%;
+  margin-top: 10px;
+}
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 13px;
+  border-radius: 6px;
+  background: #e5ebf2;
+  color: #19334d;
+  text-decoration: none;
+  white-space: nowrap;
+}
 button:disabled {
   opacity: 0.5;
   cursor: wait;
@@ -207,6 +226,28 @@ label.wide {
 form button {
   width: 100%;
   margin-top: 20px;
+}
+.toggle {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 18px;
+}
+.toggle input {
+  width: 20px;
+  min-height: 20px;
+  margin: 1px 0 0;
+}
+.toggle span,
+.toggle small {
+  display: block;
+}
+.toggle strong {
+  color: #223248;
+}
+.toggle small {
+  margin-top: 3px;
+  line-height: 1.4;
 }
 #notice {
   padding: 12px 0;
