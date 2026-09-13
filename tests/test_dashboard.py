@@ -262,7 +262,10 @@ def run():
     assert len(detailed["contract_history"]["outcomes"]["UP"]) == 61
     signals = market.trading_signals(signal_market)
     assert signals["opening_distance_context"]["one_minute_rms_move_usd"] == 1
-    assert signals["opening_distance_context"]["signed_opening_distance_in_rms_moves"] == -2
+    assert (
+        signals["opening_distance_context"]["signed_opening_distance_in_rms_moves"]
+        == -2
+    )
     assert (
         signals["windows"]["5m"]["complete"]
         and not signals["windows"]["60m"]["complete"]
