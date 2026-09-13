@@ -34,7 +34,6 @@ DEFAULTS = dict(
     max_trade="10",
     interval="0.7",
     jitter="0.25",
-    market_refresh="5",
 )
 
 
@@ -91,8 +90,6 @@ def validate(values):
         raise ValueError("Loss budget must be negative; 0 disables it")
     if not dec(".1") <= n["interval"] <= 60 or not 0 <= n["jitter"] <= 5:
         raise ValueError("Poll: 0.1–60 seconds; jitter: 0–5 seconds")
-    if not dec(".1") <= n["market_refresh"] <= 60:
-        raise ValueError("Market refresh: 0.1–60 seconds")
     return {**values, **n}
 
 

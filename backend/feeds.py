@@ -504,16 +504,9 @@ class Feed:
             + str(int(time.time()) // seconds * seconds)
         )
         cached = self.markets.get(key)
-        if (
-            not cached
-            or cached[1]["ticker"] != slug
-            or time.monotonic() - cached[0] >= float(c["market_refresh"])
-        ):
-            markets = get_json(
-                common.GAMMA + "/markets?" + urllib.parse.urlencode({"slug": slug})
-            )
-            raw = next((m for m in markets if m.get("slug") == slug), None)
-            if not raw:
+        if not cached or cached[1]["ticker"] != slug:
+            raw = get_json(common.GAMMA + "/markets/slug/" + slug)
+            if raw.get("slug") != slug:
                 raise ValueError("No current Polymarket market")
             m = market.parse_market(raw, asset)
             if (
