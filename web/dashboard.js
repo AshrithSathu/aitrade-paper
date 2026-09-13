@@ -112,7 +112,6 @@ function render(update) {
         ? "Stopped"
         : "Running";
     $("start" + mode).disabled = !info.paused || !!info.halted;
-    $("pause" + mode).disabled = info.paused;
     $("runhours" + mode).disabled = !info.paused;
     $("profittarget" + mode).disabled = !info.paused;
     if (!loadedModes.has(mode)) {
@@ -248,6 +247,5 @@ stream.onerror = () => {
     "Live connection interrupted. Reconnecting automatically; displayed values may be out of date.";
   for (const m of ["5", "15"]) {
     $("start" + m).disabled = true;
-    $("pause" + m).disabled = false;
   }
 };

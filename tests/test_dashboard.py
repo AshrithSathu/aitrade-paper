@@ -767,7 +767,11 @@ def run():
                 )
                 with urllib.request.urlopen(req) as response:
                     assert response.headers["Content-Type"].startswith(content_type)
-                    assert response.read()
+                    content = response.read()
+                    assert content
+                    if route == "/dashboard.js":
+                        assert b'$("pause" + mode).disabled' not in content
+                        assert b'$("pause" + m).disabled' not in content
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
             )
