@@ -148,6 +148,7 @@ class BookStream:
     def __init__(self, m):
         self.market = copy.deepcopy(m)
         self.books = {}
+        self.reported_best = {}
         self.book_samples = deque(maxlen=301)
         self.trade_samples = deque(maxlen=5000)
         self.flow_started = time.time()
@@ -192,6 +193,7 @@ class BookStream:
     def update(self, event):
         if event.get("error"):
             self.books.clear()
+            self.reported_best.clear()
             self.book_samples.clear()
             self.trade_samples.clear()
             self.flow_started = time.time()
@@ -263,6 +265,7 @@ class BookStream:
                 ):
                     raise ValueError("Out-of-order book snapshot")
                 body = {**self.metadata[side], **event}
+                self.reported_best.pop(side, None)
             else:
                 if side not in pending:
                     continue
@@ -297,21 +300,23 @@ class BookStream:
                         body[key].append({"price": str(price), "size": str(size)})
                 body["timestamp"] = event["timestamp"]
             if kind == "price_change":
-                bid = max(
-                    (common.dec(row["price"]) for row in body["bids"]), default=None
-                )
-                ask = min(
-                    (common.dec(row["price"]) for row in body["asks"]), default=None
-                )
-                if bid is not None and ask is not None and bid >= ask:
-                    raise ValueError("Crossed or locked Polymarket orderbook")
-                for key, best in [("best_bid", bid), ("best_ask", ask)]:
-                    if (
-                        change.get(key)
-                        and common.dec(change[key]) >= 0
-                        and best != common.dec(change[key])
-                    ):
-                        raise ValueError("Book delta out of sync")
+                reported = {}
+                for key in ("best_bid", "best_ask"):
+                    value = common.dec(change[key])
+                    if not value.is_finite() or not 0 <= value <= 1:
+                        raise ValueError("Invalid reported best price")
+                    reported[key] = value
+                body["bids"] = [
+                    row
+                    for row in body["bids"]
+                    if common.dec(row["price"]) <= reported["best_bid"]
+                ]
+                body["asks"] = [
+                    row
+                    for row in body["asks"]
+                    if common.dec(row["price"]) >= reported["best_ask"]
+                ]
+                self.reported_best[side] = reported
             else:
                 market.apply_book(
                     {
@@ -353,9 +358,21 @@ class BookStream:
             for side in m["tokens"]:
                 if side not in self.books:
                     raise ValueError("Waiting for complete WebSocket books")
-                market.apply_book(
-                    m, copy.deepcopy(self.books[side]), side, require_fresh=False
-                )
+                body = self.books[side]
+                reported = self.reported_best.get(side, {})
+                actual = {
+                    "best_bid": max(
+                        (common.dec(row["price"]) for row in body["bids"]),
+                        default=None,
+                    ),
+                    "best_ask": min(
+                        (common.dec(row["price"]) for row in body["asks"]),
+                        default=None,
+                    ),
+                }
+                if any(actual[key] != value for key, value in reported.items()):
+                    raise ValueError("Waiting for synchronized WebSocket book")
+                market.apply_book(m, copy.deepcopy(body), side, require_fresh=False)
             stamp = time.time()
             if not self.book_samples or stamp - self.book_samples[-1][0] >= 1:
                 point = {}

@@ -134,6 +134,7 @@ def run():
     stream.lock = threading.Lock()
     stream.market = copy.deepcopy(m)
     stream.books = {}
+    stream.reported_best = {}
     stream.metadata = {"UP": body}
     stream.error = None
     stream.update({"event_type": "heartbeat", "received_at": int(time.time() * 1000)})
