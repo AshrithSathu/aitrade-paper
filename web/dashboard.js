@@ -246,6 +246,39 @@ function render(update) {
     ? (currentReview ? "Current review: " : "Previous review: ") +
       new Date(review.payload.at).toLocaleString()
     : "";
+  const outcomes = Object.fromEntries(
+    s.events
+      .filter((e) => e.kind === "review_outcome")
+      .map((e) => [e.ticker, e.payouts.UP === "1" ? "Up won" : "Down won"]),
+  );
+  const entries = new Set(
+    s.events.filter((e) => e.kind === "entry").map((e) => e.ticker),
+  );
+  const decisions = s.events
+    .filter((e) => e.kind === "codex")
+    .flatMap((e) => e.decisions.map((decision) => ({ ...decision, at: e.at })))
+    .slice(-20)
+    .reverse();
+  $("decisionhistory").innerHTML = decisions.length
+    ? decisions
+        .map((decision) => {
+          const action =
+            decision.action === "WAIT"
+              ? "Skipped"
+              : decision.action === "ENTER_UP"
+                ? "Enter Up"
+                : "Enter Down";
+          const fill =
+            decision.action === "WAIT"
+              ? "No trade"
+              : entries.has(decision.ticker)
+                ? "Filled"
+                : "Not filled";
+          const outcome = outcomes[decision.ticker] || "Outcome pending";
+          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="sub">${esc(new Date(decision.at).toLocaleString())}</span></div><div class="sub">${esc(fill)} · ${esc(outcome)}</div><div>${esc(decision.reason)}</div></div>`;
+        })
+        .join("")
+    : "No decisions yet.";
   const login = update.login;
   $("loginstatus").textContent = login.status;
   $("codexlogin").hidden = login.authenticated;

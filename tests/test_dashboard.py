@@ -788,6 +788,8 @@ def run():
                     assert response.headers["Content-Type"].startswith(content_type)
                     content = response.read()
                     assert content
+                    if route == "/":
+                        assert b'id="decisionhistory"' in content
                     if route == "/dashboard.js":
                         assert b'$("pause" + mode).disabled' not in content
                         assert b'$("pause" + m).disabled' not in content
@@ -796,6 +798,8 @@ def run():
                         )
                         assert b'url.searchParams.set("minutes", minutes)' in content
                         assert b"window.onpopstate" in content
+                        assert b'kind === "review_outcome"' in content
+                        assert b'kind === "codex"' in content
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
             )
