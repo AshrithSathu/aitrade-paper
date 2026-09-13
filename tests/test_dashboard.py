@@ -410,6 +410,7 @@ def run():
     with (
         tempfile.TemporaryDirectory() as folder,
         patch.object(common, "DATA", Path(folder)),
+        patch.dict(os.environ, {"CODEX_HOME": str(Path(folder) / "codex")}),
     ):
         root = Path(folder)
         at = time.time()
@@ -428,7 +429,7 @@ def run():
             )
         reviews = root / "codex-reviews"
         reviews.mkdir()
-        old_at = at - 31 * 86400
+        old_at = at - 2 * 86400
         old = dict(
             status="complete",
             payload={"at": datetime.fromtimestamp(old_at, timezone.utc).isoformat()},
@@ -441,6 +442,11 @@ def run():
         os.utime(active, (old_at, old_at))
         recent = reviews / (str(uuid.uuid4()) + ".json")
         recent.write_text(json.dumps(old))
+        stale_temp = root / "codex" / "tmp" / "arg0" / "codex-arg0-stale"
+        stale_temp.mkdir(parents=True)
+        os.utime(stale_temp, (at - 600, at - 600))
+        recent_temp = stale_temp.parent / "codex-arg0-recent"
+        recent_temp.mkdir()
         for name in [
             "state.json",
             "codex-latest.json",
@@ -449,8 +455,13 @@ def run():
         ]:
             (root / name).write_text("preserve")
         result = storage.prune_storage(at, active)
-        assert result == {"removed_ticks": 0, "removed_reviews": 1}
+        assert result == {
+            "removed_ticks": 0,
+            "removed_reviews": 1,
+            "removed_codex_temp": 1,
+        }
         assert not expired.exists() and active.exists() and recent.exists()
+        assert not stale_temp.exists() and recent_temp.exists()
         for name in [
             "state.json",
             "codex-latest.json",
@@ -463,6 +474,7 @@ def run():
         assert storage.prune_storage(at, active) == {
             "removed_ticks": 0,
             "removed_reviews": 0,
+            "removed_codex_temp": 0,
         }
     # Only exact terminal Gamma prices or explicit CLOB winner flags establish a payout.
     f = feeds.Feed.__new__(feeds.Feed)

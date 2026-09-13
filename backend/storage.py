@@ -6,15 +6,17 @@ import atexit
 import json
 import os
 import re
+import shutil
 import sqlite3
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 from . import common
 
 
 def prune_storage(at=None, active_review=None, history=None, data_dir=None):
-    """Retain 24h of observations and 30d of detailed reviews; never touch account/auth files."""
+    """Retain 24h of useful data and remove abandoned Codex temporary files."""
     at = time.time() if at is None else at
     removed_ticks = history.prune(int((at - 86400) * 1000)) if history else 0
     removed_reviews = 0
@@ -25,15 +27,34 @@ def prune_storage(at=None, active_review=None, history=None, data_dir=None):
             or not re.fullmatch(r"[0-9a-f-]{36}\.json", path.name)
         ):
             continue
-        if path.stat().st_mtime >= at - 30 * 86400:
+        if path.stat().st_mtime >= at - 86400:
             continue
         review = json.loads(path.read_text())
         if review.get("status") not in ("complete", "error", "interrupted", "running"):
             continue
-        if common.parse_time(review["payload"]["at"]).timestamp() < at - 30 * 86400:
+        if common.parse_time(review["payload"]["at"]).timestamp() < at - 86400:
             path.unlink()
             removed_reviews += 1
-    return dict(removed_ticks=removed_ticks, removed_reviews=removed_reviews)
+    removed_codex_temp = 0
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        temporary = Path(codex_home) / "tmp" / "arg0"
+        for path in temporary.glob("codex-arg0*"):
+            try:
+                if (
+                    path.is_dir()
+                    and not path.is_symlink()
+                    and path.stat().st_mtime < at - 300
+                ):
+                    shutil.rmtree(path)
+                    removed_codex_temp += 1
+            except FileNotFoundError:
+                pass
+    return dict(
+        removed_ticks=removed_ticks,
+        removed_reviews=removed_reviews,
+        removed_codex_temp=removed_codex_temp,
+    )
 
 
 class TickStore:
