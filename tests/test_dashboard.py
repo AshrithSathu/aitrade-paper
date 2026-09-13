@@ -834,6 +834,7 @@ def run():
                         assert b"history.outcomes" in content
                         assert b"history.decisions" in content
                         assert b'"&page=" + page' in content
+                        assert b'addEventListener("visibilitychange"' in content
             req = urllib.request.Request(
                 f"http://127.0.0.1:{server.server_port}/api/status?minutes=5",
                 headers={"Host": "127.0.0.1:8765"},

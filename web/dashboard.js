@@ -334,13 +334,24 @@ $("newerdecisions").onclick = () =>
   loadHistory(selectedMinutes, histories[selectedMinutes].page - 1);
 $("olderdecisions").onclick = () =>
   loadHistory(selectedMinutes, histories[selectedMinutes].page + 1);
-const stream = new EventSource("/api/events");
-stream.onmessage = (event) => render(JSON.parse(event.data));
-stream.onerror = () => {
-  $("badge").textContent = "Reconnecting";
-  $("notice").textContent =
-    "Live connection interrupted. Reconnecting automatically; displayed values may be out of date.";
-  for (const m of ["5", "15"]) {
-    $("start" + m).disabled = true;
+let stream;
+function connectStream() {
+  if (stream || document.hidden) return;
+  stream = new EventSource("/api/events");
+  stream.onmessage = (event) => render(JSON.parse(event.data));
+  stream.onerror = () => {
+    $("badge").textContent = "Reconnecting";
+    $("notice").textContent =
+      "Live connection interrupted. Reconnecting automatically; displayed values may be out of date.";
+    for (const m of ["5", "15"]) $("start" + m).disabled = true;
+  };
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stream?.close();
+    stream = null;
+  } else {
+    connectStream();
   }
-};
+});
+connectStream();

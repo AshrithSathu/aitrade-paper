@@ -49,7 +49,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 - Codex has a 25-second timeout. Decisions older than 30 seconds are rejected. Pause cancels AI; open trades continue to official settlement.
 - Every scheduled review is labeled with the eventual Up/Down settlement. This includes WAIT decisions, so later analysis can compare skipped opportunities with executed trades.
 - Account loss limits and profit targets stop new entries. There is no per-position early-exit stop-loss.
-- The dashboard uses a compact SSE connection, capped at one update per second. Start/Stop and settings use HTTP POST; trade and AI history load by HTTP only when the event version changes.
+- The visible dashboard uses a compact SSE connection, capped at one update per second and closed while its browser tab is hidden. Start/Stop and settings use HTTP POST; trade and AI history load by HTTP only when the event version changes.
 
 ## Data and persistence
 
