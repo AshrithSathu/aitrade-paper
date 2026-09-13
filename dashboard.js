@@ -2,22 +2,21 @@ const $=id=>document.getElementById(id);
 const money=v=>v==null?'—':Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const time=v=>new Date(v).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-const form=$('settings');let loaded=false,inFlight=false,settings=null,selectedMinutes='15',actionBusy=false;const loadedModes=new Set();
+const form=$('settings');let loaded=false,settings=null,selectedMinutes='15',actionBusy=false;const loadedModes=new Set();let latest=null;
 function tabsDisabled(value){$('tab5').disabled=value;$('tab15').disabled=value}
-for(const minutes of ['5','15'])$('tab'+minutes).onclick=()=>{if(inFlight||actionBusy)return;selectedMinutes=minutes;loaded=false;settings=null;$('saved').textContent='';for(const m of ['5','15']){$('tab'+m).setAttribute('aria-selected',String(m===minutes));$('tab'+m).className=m===minutes?'':'secondary'}refresh()};
+for(const minutes of ['5','15'])$('tab'+minutes).onclick=()=>{if(actionBusy)return;selectedMinutes=minutes;loaded=false;settings=null;$('saved').textContent='';for(const m of ['5','15']){$('tab'+m).setAttribute('aria-selected',String(m===minutes));$('tab'+m).className=m===minutes?'':'secondary'}if(latest)render(latest)};
 async function action(path,body={},minutes=selectedMinutes){
  if(actionBusy)return;actionBusy=true;tabsDisabled(true);
- try{const r=await fetch('/api/'+path+'?minutes='+minutes,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);$('saved').textContent=path==='settings'?'Limits saved.':'Done.';await refresh()}
+ try{const r=await fetch('/api/'+path+'?minutes='+minutes,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);$('saved').textContent=path==='settings'?'Limits saved.':'Done.'}
  catch(e){$('saved').textContent=e.message}
- finally{actionBusy=false;tabsDisabled(inFlight)}
+ finally{actionBusy=false;tabsDisabled(false)}
 }
 for(const m of ['5','15']){$('start'+m).onclick=()=>{if($('runhours'+m).reportValidity()&&$('profittarget'+m).reportValidity())action('start',{duration_hours:$('runhours'+m).value,profit_target_percent:$('profittarget'+m).value},m)};$('pause'+m).onclick=()=>action('pause',{},m);}
 $('codexlogin').onclick=()=>action('codex/login');
 form.onsubmit=e=>{e.preventDefault();if(!settings)return;const body={...settings,...Object.fromEntries(new FormData(form)),assets:['BTC']};body.daily_loss=String(-Math.abs(Number(body.daily_loss)));action('settings',body)};
-async function refresh(){
- if(inFlight)return;inFlight=true;tabsDisabled(true);
- try{
-  const r=await fetch('/api/status?minutes='+selectedMinutes);if(!r.ok)throw Error('Status unavailable');const d=await r.json(),s=d.state,a=d.account,m=d.markets.BTC,u=m?.underlying;
+function render(update){
+  latest=update;
+  const d=update.accounts[selectedMinutes],s=d.state,a=d.account,m=d.markets.BTC,u=m?.underlying;
   settings=d.settings;
   $('markettitle').textContent='Bitcoin · '+selectedMinutes+' minutes';
   $('reviewpolicy').textContent='One review at minute '+(selectedMinutes==='5'?'1':'3')+'. Enter Up, Down, or skip. Trades stay open until settlement.';
@@ -45,8 +44,12 @@ async function refresh(){
   const review=d.codex;
   $('reviewstatus').textContent=review?.status==='running'?'AI is reviewing this market…':review?.response?.reason||'No decision yet.';
   $('reviewtime').textContent=review?.payload?.at?'Last review: '+new Date(review.payload.at).toLocaleString():'';
-  const loginResponse=await fetch('/api/codex/login');if(loginResponse.ok){const login=await loginResponse.json();$('loginstatus').textContent=login.status;$('codexlogin').hidden=login.authenticated;$('codexlogin').disabled=login.running||!d.paused;$('loginoutput').textContent=login.authenticated?'':login.output;}
- }catch(e){$('badge').textContent='Disconnected';$('notice').textContent='Cannot reach the server. Displayed values may be out of date.';for(const m of ['5','15']){$('start'+m).disabled=true;$('pause'+m).disabled=true}}
- finally{inFlight=false;tabsDisabled(actionBusy)}
+  const login=update.login;$('loginstatus').textContent=login.status;$('codexlogin').hidden=login.authenticated;$('codexlogin').disabled=login.running||Object.values(update.accounts).some(a=>!a.paused);$('loginoutput').textContent=login.authenticated?'':login.output;
 }
-refresh();setInterval(refresh,1500);
+const stream=new EventSource('/api/events');
+stream.onmessage=event=>render(JSON.parse(event.data));
+stream.onerror=()=>{
+ $('badge').textContent='Reconnecting';
+ $('notice').textContent='Live connection interrupted. Reconnecting automatically; displayed values may be out of date.';
+ for(const m of ['5','15']){$('start'+m).disabled=true;$('pause'+m).disabled=false}
+};

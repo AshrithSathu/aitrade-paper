@@ -254,6 +254,16 @@ def run():
             req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/{action}?minutes={minutes}',data=b'{}',headers={'Host':'127.0.0.1:8765','Content-Type':'application/json'})
             with urllib.request.urlopen(req) as response:assert response.status==200
         try:
+            dashboard.login.update(checked_at=dashboard.time.monotonic(),authenticated=True)
+            req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/events',headers={'Host':'127.0.0.1:8765'})
+            stream=urllib.request.urlopen(req,timeout=5)
+            assert stream.headers['Content-Type']=='text/event-stream'
+            first=json.loads(stream.readline().decode().removeprefix('data: '));stream.readline()
+            assert first['accounts']['5']['paused'] and first['accounts']['15']['paused']
+            post('start','5')
+            updated=json.loads(stream.readline().decode().removeprefix('data: '));stream.readline()
+            assert not updated['accounts']['5']['paused'] and updated['accounts']['15']['paused']
+            stream.close()
             post('start','5');assert not dashboard.engines['5'].state['paused'] and dashboard.engines['15'].state['paused']
             post('start','15');post('pause','5');assert dashboard.engines['5'].state['paused'] and not dashboard.engines['15'].state['paused']
             post('pause','15');assert dashboard.engines['15'].state['paused']
@@ -270,6 +280,7 @@ def run():
         assert request.call_count==1
     p.HTTP_BLOCKED_UNTIL.clear()
     import dashboard as dashboard
+    dashboard.login['checked_at']=0
     with patch.object(dashboard.subprocess,'run',return_value=subprocess.CompletedProcess([],0)),patch.object(dashboard.time,'monotonic',return_value=100):
         dashboard.refresh_login();assert dashboard.login['authenticated']
     with patch.object(dashboard.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),patch.object(dashboard.time,'monotonic',return_value=200):

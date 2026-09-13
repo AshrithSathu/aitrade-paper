@@ -57,6 +57,15 @@ def publish(engine,view):
                 markets=copy.deepcopy(engine.snapshots),errors=copy.deepcopy(engine.errors),
                 codex=copy.deepcopy(engine.last_codex))
 
+def status(minutes):
+    engine=engines[minutes]
+    data=copy.deepcopy(views[minutes])
+    data.update(settings=settings_by[minutes],paused=engine.state['paused'])
+    data['modes']={m:{k:e.state.get(k) for k in ('paused','halted','run_hours','profit_target_percent')} for m,e in engines.items()}
+    data['state']['events']=data['state']['events'][-300:]
+    return data
+
+
 def worker(engine,view):
     while True:
         with lock:view['busy']=True
@@ -96,11 +105,25 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/':return self.send(200,(p.ROOT/'dashboard.html').read_bytes(),'text/html; charset=utf-8')
         if path=='/dashboard.js':return self.send(200,(p.ROOT/'dashboard.js').read_bytes(),'text/javascript; charset=utf-8')
         if path=='/api/status':
-            with lock:
-                data=copy.deepcopy(view);data['settings']=settings_by[minutes];data['paused']=engine.state['paused']
-                data['modes']={m:{k:e.state.get(k) for k in ('paused','halted','run_hours','profit_target_percent')} for m,e in engines.items()}
-                data['state']['events']=data['state']['events'][-300:]
+            with lock:data=status(minutes)
             return self.send(200,data)
+        if path=='/api/events':
+            self.send_response(200)
+            self.send_header('Content-Type','text/event-stream')
+            self.send_header('Cache-Control','no-cache, no-transform')
+            self.send_header('X-Accel-Buffering','no')
+            self.end_headers()
+            self.connection.settimeout(20)
+            try:
+                while True:
+                    with lock:
+                        refresh_login()
+                        data={'accounts':{m:status(m) for m in engines},'login':dict(login)}
+                    self.wfile.write(('data: '+json.dumps(data,default=str)+'\n\n').encode())
+                    self.wfile.flush()
+                    with idle:idle.wait(timeout=15)
+            except (OSError,TimeoutError):pass
+            return
         if path=='/api/history':return self.send(200,json.loads(engine.state_path.read_text())['events'])
         self.send(404,{'error':'Not found'})
     def do_POST(self):
@@ -145,6 +168,7 @@ class Handler(BaseHTTPRequestHandler):
                     if s['halted'] and not engine.limits():s['halted']=None
                 else:raise ValueError('Unknown action')
                 if not view['busy']:p.atomic_json(engine.state_path,s);publish(engine,view)
+                idle.notify_all()
             self.send(200,{'ok':True})
         except (ValueError,KeyError,TypeError) as exc:self.send(400,{'error':str(exc)})
 
