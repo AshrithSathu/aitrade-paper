@@ -237,6 +237,30 @@ def run():
             assert five.last_codex['payload']['strategy']['market_minutes']==5
             five.pause();assert not fifteen.state['paused']
         for engine in (five,fifteen):engine.pool.shutdown();engine.feed_pool.shutdown()
+    # Exercise real HTTP routes: each account starts/stops independently without launching AI.
+    import urllib.request,json
+    from http.server import ThreadingHTTPServer
+    with tempfile.TemporaryDirectory() as folder:
+        dashboard.engines={};dashboard.views={};dashboard.settings_by={}
+        for minutes in ('5','15'):
+            settings=dict(p.DEFAULTS,market_minutes=minutes)
+            engine=p.Engine(p.initial_state('1000'),settings,FakeFeed(),data_dir=Path(folder)/minutes)
+            engine.ready=lambda *args,**kwargs:True
+            dashboard.engines[minutes]=engine;dashboard.views[minutes]={'busy':False,'error':None}
+            dashboard.settings_by[minutes]=settings;dashboard.publish(engine,dashboard.views[minutes])
+        server=ThreadingHTTPServer(('127.0.0.1',0),dashboard.Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        def post(action,minutes):
+            req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/{action}?minutes={minutes}',data=b'{}',headers={'Host':'127.0.0.1:8765','Content-Type':'application/json'})
+            with urllib.request.urlopen(req) as response:assert response.status==200
+        try:
+            post('start','5');assert not dashboard.engines['5'].state['paused'] and dashboard.engines['15'].state['paused']
+            post('start','15');post('pause','5');assert dashboard.engines['5'].state['paused'] and not dashboard.engines['15'].state['paused']
+            post('pause','15');assert dashboard.engines['15'].state['paused']
+            assert all(e.future is None for e in dashboard.engines.values())
+        finally:
+            server.shutdown();server.server_close();thread.join()
+            for e in dashboard.engines.values():e.pool.shutdown();e.feed_pool.shutdown()
     from urllib.error import HTTPError
     with patch.object(p.urllib.request,'urlopen',side_effect=HTTPError('https://example.test/book',403,'Forbidden',{},None)) as request:
         for _ in range(2):

@@ -98,6 +98,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/status':
             with lock:
                 data=copy.deepcopy(view);data['settings']=settings_by[minutes];data['paused']=engine.state['paused']
+                data['modes']={m:{k:e.state.get(k) for k in ('paused','halted','run_hours','profit_target_percent')} for m,e in engines.items()}
                 data['state']['events']=data['state']['events'][-300:]
             return self.send(200,data)
         if path=='/api/history':return self.send(200,json.loads(engine.state_path.read_text())['events'])
@@ -152,6 +153,16 @@ if __name__=='__main__':
     process_lock=(p.DATA/'paper_trader.lock').open('w')
     try:fcntl.flock(process_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:raise SystemExit('A paper trader is already running')
+    reset_marker=p.DATA/'.reset_requested'
+    if reset_marker.exists():
+        import psycopg2,shutil
+        with psycopg2.connect(os.environ['DATABASE_URL']) as db,db.cursor() as cur:
+            cur.execute('TRUNCATE ticks, history_migrations')
+        for path in p.DATA.iterdir():
+            if path.name in ('paper_trader.lock','.reset_requested'):continue
+            if path.is_dir() and not path.is_symlink():shutil.rmtree(path)
+            else:path.unlink()
+        reset_marker.unlink()
     feed=p.Feed()
     for minutes in ('15','5'):
         directory=p.DATA if minutes=='15' else p.DATA/'5m'
