@@ -13,6 +13,8 @@ def main():
     data.mkdir(parents=True, exist_ok=True)
     if os.getuid() == 0:
         os.chown(data, 1000, 1000)
+        for state in (data / "polymarket").glob("**/state.json"):
+            os.chown(state, 1000, 1000)
         os.setgid(1000)
         os.setuid(1000)
     os.environ["HOME"] = "/home/node"
