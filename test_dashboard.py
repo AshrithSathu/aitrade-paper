@@ -42,6 +42,29 @@ def run():
         try:p.apply_book(copy.deepcopy(m),{**body,**bad},'UP')
         except ValueError:pass
         else:raise AssertionError(bad)
+    stream=p.BookStream.__new__(p.BookStream)
+    stream.market=copy.deepcopy(m);stream.books={};stream.metadata={'UP':body};stream.error=None
+    stream.update({**body,'event_type':'book'})
+    stream.update({'event_type':'price_change','market':m['condition_id'],'timestamp':body['timestamp'],
+        'price_changes':[{'asset_id':'11','side':'BUY','price':'.4','size':'0','best_bid':'.1','best_ask':'.5'}]})
+    assert all(p.dec(row['price'])!=p.dec('.4') for row in stream.books['UP']['bids'])
+    stream.update({'error':'disconnected'});assert not stream.books
+    stream.update({'event_type':'price_change','market':m['condition_id'],'timestamp':body['timestamp'],
+        'price_changes':[{'asset_id':'11','side':'BUY','price':'.3','size':'9'}]})
+    assert not stream.books # deltas cannot seed a book after disconnect
+    stream.update({**body,'event_type':'book'})
+    try:stream.update({'event_type':'price_change','market':m['condition_id'],'timestamp':'1',
+        'price_changes':[{'asset_id':'11','side':'BUY','price':'.3','size':'9'}]})
+    except ValueError:pass
+    else:raise AssertionError('Out-of-order delta accepted')
+    end=int(time.time()//60)*60000
+    signal_market=copy.deepcopy(m);signal_market.update(fee_rate='.07',close_time=(p.now()+timedelta(minutes=10)).isoformat())
+    signal_market['underlying']=dict(source_at=p.datetime.fromtimestamp(end/1000,p.timezone.utc).isoformat(),delta='-2',
+        history=dict(first_at=end-30*60000,max_gap_ms=1000,bars=[dict(t=end-(30-i)*60000,open=str(100+i),close=str(100+i),high=str(100+i),low=str(100+i)) for i in range(31)]))
+    signals=p.trading_signals(signal_market)
+    assert signals['windows']['5m']['complete'] and not signals['windows']['60m']['complete']
+    assert signals['rsi14_simple_closed_minutes']==100 and signals['opening_delta_usd']=='-2'
+    assert p.dec(signals['books']['UP']['breakeven_win_probability'])>p.dec('.5')
     assert p.trade_fee({'fee_rate':'.07'},p.dec(100),p.dec('.5'))==p.dec('1.75000')
     stamp=int(time.time())*1000
     event=dict(topic='crypto_prices_twap_sixty',payload={'symbol':'btc/usd','window_s':60,'timestamp':stamp,'full_accuracy_value':'77233123456789012345678'})

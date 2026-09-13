@@ -59,3 +59,7 @@ Expired positions await the official closed-market winning-token result or expli
 The dashboard owns one process lock and atomically saves account/events in `data/polymarket/state.json`. Exact reviews are archived in `data/polymarket/codex-reviews/`; `/api/history` exposes all account events. The old Kalshi state remains under `data/` and the migration backup under `data/backups/before-polymarket/`. It is not mixed into the Polymarket account.
 
 This is a local simulation. No wallet connection, real-order endpoint, onchain transaction or automatic trading start is implemented.
+
+Live order books now use the public Polymarket market WebSocket (full snapshots and price deltas). HTTP loads initial order limits and continues market metadata, contract history and official settlement requests. Disconnects clear the book; stale books block entry. No continuous HTTP book polling or automatic HTTP fallback is used. Dashboard polling remains unchanged.
+
+Each AI snapshot includes TWAP-derived 1/5/15/30/60 completed-minute changes, ranges, SMA and minute-return volatility; simple RSI over 14 completed minute changes; signed opening delta; top-five-level depth imbalance; spread and fee-adjusted break-even probability. These are context only, not entry rules. Partial windows, gaps and source age are explicit. No exchange-volume indicators or older historical backfill are fabricated. Current signals are visible under the market table.

@@ -7,6 +7,7 @@ import json
 import os
 import re
 import signal
+import statistics
 import subprocess
 import tempfile
 import threading
@@ -177,7 +178,7 @@ class Chainlink:
     def underlying(self,asset,m):
         start=int(parse_time(m['open_time']).timestamp()*1000)
         with sqlite3.connect(self.path) as db:
-            rows=db.execute('SELECT timestamp,value FROM ticks WHERE asset=? AND timestamp>=? ORDER BY timestamp',(asset,int((time.time()-3600)*1000))).fetchall()
+            rows=db.execute('SELECT timestamp,value FROM ticks WHERE asset=? AND timestamp>=? ORDER BY timestamp',(asset,int(time.time()//60)*60000-3600000)).fetchall()
             opening=db.execute('SELECT value FROM ticks WHERE asset=? AND timestamp=?',(asset,start)).fetchone()
         bars={}
         for stamp,value in rows:
@@ -191,13 +192,87 @@ class Chainlink:
                     samples=len(rows),bars=list(bars.values()),first_at=rows[0][0] if rows else None,last_at=rows[-1][0] if rows else None,
                     max_gap_ms=max((b[0]-a[0] for a,b in zip(rows,rows[1:])),default=0),
                     limitation='No guaranteed backfill or replay; raw received observations persist in chainlink.sqlite'))
-        if rows and opening:data['delta']=str(abs(dec(rows[-1][1])-dec(opening[0])))
+        if rows and opening:data['delta']=str(dec(rows[-1][1])-dec(opening[0]))
         if not rows or time.time()-rows[-1][0]/1000>5:data['error']=self.error or 'Chainlink source data is stale'
         elif not opening:data['error']='Opening tick not recorded: wait for the next market; no opening price is fabricated'
         return data
 
+class BookStream:
+    def __init__(self,m):
+        self.market=copy.deepcopy(m);self.books={};self.lock=threading.Lock();self.error='Waiting for WebSocket books'
+        self.metadata={side:get_json(CLOB+'/book?'+urllib.parse.urlencode({'token_id':token})) for side,token in m['tokens'].items()}
+        for side,body in self.metadata.items():apply_book(copy.deepcopy(m),body,side)
+        self.process=subprocess.Popen(['node',str(ROOT/'chainlink.mjs'),*m['tokens'].values()],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
+        threading.Thread(target=self.collect,daemon=True).start()
+
+    def close(self):
+        self.process.terminate()
+        try:self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
+
+    def update(self,event):
+        if event.get('error'):
+            self.books.clear();self.error=event['error'];return
+        if event.get('market')!=self.market['condition_id']:return
+        kind=event.get('event_type')
+        if kind not in ('book','price_change','tick_size_change'):return
+        changes=event.get('price_changes',[]) if kind=='price_change' else [event]
+        pending=copy.deepcopy(self.books)
+        for change in changes:
+            side=next((side for side,token in self.market['tokens'].items() if token==change.get('asset_id')),None)
+            if side is None:continue
+            if kind=='book':
+                if side in pending and dec(event['timestamp'])<dec(pending[side]['timestamp']):raise ValueError('Out-of-order book snapshot')
+                body={**self.metadata[side],**event}
+            else:
+                if side not in pending:continue
+                body=pending[side]
+                if dec(event['timestamp'])<dec(body['timestamp']):raise ValueError('Out-of-order book update')
+                if kind=='tick_size_change':
+                    body['tick_size']=change['new_tick_size'];self.metadata[side]['tick_size']=change['new_tick_size']
+                else:
+                    if change['side'] not in ('BUY','SELL'):raise ValueError('Invalid book side')
+                    key='bids' if change['side']=='BUY' else 'asks'
+                    price,size=dec(change['price']),dec(change['size'])
+                    if not price.is_finite() or not size.is_finite() or not 0<=price<=1 or size<0:raise ValueError('Invalid book delta')
+                    body[key]=[row for row in body[key] if dec(row['price'])!=price]
+                    if size:body[key].append({'price':str(price),'size':str(size)})
+                body['timestamp']=event['timestamp']
+            checked=apply_book(copy.deepcopy(self.market),body,side)
+            if kind=='price_change':
+                for key,qkind in [('best_bid','bid'),('best_ask','ask')]:
+                    if change.get(key) and dec(change[key])>=0 and quote(checked,side,qkind)!=dec(change[key]):raise ValueError('Book delta out of sync')
+            pending[side]=body
+        self.books=pending;self.error=None
+
+    def collect(self):
+        try:
+            for line in self.process.stdout:
+                events=json.loads(line)
+                with self.lock:
+                    for event in events if isinstance(events,list) else [events]:self.update(event)
+        except Exception as exc:
+            with self.lock:self.books.clear();self.error=str(exc)
+            self.process.terminate()
+        finally:
+            with self.lock:self.books.clear();self.error='Orderbook stream stopped'
+
+    def snapshot(self,m):
+        with self.lock:
+            if self.error:raise ValueError(self.error)
+            for side in m['tokens']:
+                if side not in self.books:raise ValueError('Waiting for complete WebSocket books')
+                apply_book(m,copy.deepcopy(self.books[side]),side)
+        m['book_source']='Polymarket market WebSocket'
+
+
 class Feed:
-    def __init__(self):self.markets={};self.histories={};self.chainlink=Chainlink()
+    def __init__(self):
+        self.markets={};self.histories={};self.chainlink=Chainlink();self.streams={}
+        atexit.register(self.close)
+
+    def close(self):
+        for stream in self.streams.values():stream.close()
 
     def market(self,ticker):
         if not re.fullmatch(r'[a-z]+-updown-15m-\d+',ticker):raise ValueError('Invalid Polymarket slug')
@@ -246,9 +321,56 @@ class Feed:
             except Exception as exc:h=(time.monotonic(),{'error':str(exc)})
             self.histories={key:value for key,value in self.histories.items() if time.monotonic()-value[0]<3600};self.histories[slug]=h
         m['contract_history']=copy.deepcopy(h[1])
-        for side,token in m['tokens'].items():apply_book(m,get_json(CLOB+'/book?'+urllib.parse.urlencode({'token_id':token})),side)
+        stream=self.streams.get(asset)
+        if not stream or stream.market['ticker']!=slug or stream.process.poll() is not None:
+            if stream:stream.close()
+            stream=BookStream(m);self.streams[asset]=stream
+        stream.snapshot(m)
         m['underlying']=self.chainlink.underlying(asset,m);m['floor_strike']=m['underlying']['open15m']
+        m['signals']=trading_signals(m)
         return m
+
+def trading_signals(m):
+    u=m['underlying'];bars=u['history']['bars'];end=int(parse_time(u['source_at']).timestamp()*1000)//60000*60000
+    windows={}
+    # Signals describe received TWAP observations, not exchange spot candles or traded volume.
+    for minutes in (1,5,15,30,60):
+        selected=[b for b in bars if end-minutes*60000<=b['t']<end]
+        values=[float(b['close']) for b in selected]
+        complete=bool(selected and u['history']['first_at']<=end-minutes*60000 and len(selected)==minutes)
+        changes=[(b/a-1)*100 for a,b in zip(values,values[1:])]
+        windows[str(minutes)+'m']=dict(complete=complete,minute_bars=len(selected),
+            change_pct=(values[-1]/float(selected[0]['open'])-1)*100 if values else None,
+            high=max((float(b['high']) for b in selected),default=None),low=min((float(b['low']) for b in selected),default=None),
+            sma=sum(values)/len(values) if values else None,
+            return_stddev_pct=statistics.pstdev(changes) if len(changes)>=2 else None,
+            note='Available portion only' if not complete else 'Completed minute bars; current live price supplied separately')
+    closed=[b for b in bars if b['t']<end//60000*60000]
+    rsi=None
+    if len(closed)>=15 and all(b['t']-a['t']==60000 for a,b in zip(closed[-15:],closed[-14:])):
+        differences=[float(b['close'])-float(a['close']) for a,b in zip(closed[-15:],closed[-14:])]
+        gain=sum(max(x,0) for x in differences);loss=sum(max(-x,0) for x in differences)
+        rsi=100*gain/(gain+loss) if gain+loss else 50
+    books={}
+    for side,book in m['orderbook'].items():
+        bid,ask=quote(m,side,'bid'),quote(m,side)
+        depth={}
+        for key,reverse in [('bids',True),('asks',False)]:
+            levels=sorted(book[key],key=lambda row:dec(row['price']),reverse=reverse)[:5]
+            depth[key]=sum((dec(row['size']) for row in levels),dec(0))
+        total=depth['bids']+depth['asks']
+        books[side]=dict(spread=str(ask-bid) if bid is not None and ask is not None else None,
+            top5_bid_contracts=str(depth['bids']),top5_ask_contracts=str(depth['asks']),
+            top5_imbalance=str((depth['bids']-depth['asks'])/total) if total else None,
+            breakeven_win_probability=str(ask+trade_fee(m,dec(1),ask)) if ask is not None else None)
+    return dict(windows=windows,rsi14_simple_closed_minutes=rsi,books=books,
+        seconds_remaining=float(minutes_left(m)*60),opening_delta_usd=u.get('delta'),
+        source_age_seconds=(now()-parse_time(u['source_at'])).total_seconds(),max_gap_ms=u['history']['max_gap_ms'],
+        limitations=['TWAP-derived indicators are smoothed and are not independent evidence of edge',
+            'RSI uses simple gains/losses over 14 completed minute changes, not Wilder smoothing',
+            'Window values can contain gaps; inspect complete, bar counts and max_gap_ms',
+            'Orderbook depth is displayed liquidity, not traded volume; no volume indicator is inferred'])
+
 
 def trade_fee(m,quantity,price):
     rate=dec(m['fee_rate'])
@@ -280,6 +402,7 @@ def codex_decision(payload,cancel):
             'For entries set quantity in contracts and limit_price to your maximum acceptable ask. '
             'Use quantity and limit_price of "0" for WAIT. Do not assume a 15-minute market guarantees profit. '
             'Evaluate historical context, data quality, time remaining, spread, depth, account exposure and loss budget. '
+            'Use the supplied multi-timeframe signals as context, never mechanical entry rules. Incomplete windows and gaps reduce confidence; indicators derived from the same TWAP are not independent evidence. '
             'Missing live or historical data means WAIT for entries; explain uncertainty. Hard spending limits cannot be overridden. '
             'Decisions expire 30 seconds after the supplied snapshot. Old tickers or changed positions cannot be acted on. '
             'When execution_allowed=false, this is a preview only. Return structured decisions and reasoning.\\n'
