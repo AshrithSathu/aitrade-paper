@@ -26,6 +26,9 @@ let selectedMinutes = durationFromUrl(),
   actionBusy = false;
 const loadedSettings = new Set();
 const loadedModes = new Set();
+const histories = { 5: [], 15: [] };
+const historyVersions = { 5: null, 15: null };
+const historyLoading = new Set();
 let latest = null;
 function tabsDisabled(value) {
   $("tab5").disabled = value;
@@ -218,17 +221,6 @@ function render(update) {
     : "No open trade.";
   $("performance").textContent =
     `${a.trades} closed trades · ${a.wins} wins · ${a.losses} losses`;
-  const exits = s.events.filter((e) => e.kind === "exit");
-  $("trades").innerHTML = exits.length
-    ? exits
-        .slice()
-        .reverse()
-        .map(
-          (e) =>
-            `<tr><td>${esc(new Date(e.at).toLocaleString())}</td><td>${esc(e.side)}</td><td>${esc(e.size)}</td><td>${money(e.entry)}</td><td>${money(e.exit)}</td><td class="${Number(e.pnl) < 0 ? "bad" : "good"}">${money(e.pnl)}</td></tr>`,
-        )
-        .join("")
-    : '<tr><td colspan="6">No closed trades yet.</td></tr>';
   const review = d.codex;
   const reviewTicker = review?.payload?.markets?.BTC?.ticker;
   const currentReview = reviewTicker && reviewTicker === m?.ticker;
@@ -246,15 +238,39 @@ function render(update) {
     ? (currentReview ? "Current review: " : "Previous review: ") +
       new Date(review.payload.at).toLocaleString()
     : "";
+  renderHistory(selectedMinutes);
+  if (historyVersions[selectedMinutes] !== d.event_version)
+    loadHistory(selectedMinutes);
+  const login = update.login;
+  $("loginstatus").textContent = login.status;
+  $("codexlogin").hidden = login.authenticated;
+  $("codexlogin").disabled =
+    login.running || Object.values(update.accounts).some((a) => !a.paused);
+  $("loginoutput").textContent = login.authenticated ? "" : login.output;
+}
+
+function renderHistory(minutes) {
+  const events = histories[minutes];
+  const exits = events.filter((e) => e.kind === "exit");
+  $("trades").innerHTML = exits.length
+    ? exits
+        .slice()
+        .reverse()
+        .map(
+          (e) =>
+            `<tr><td>${esc(new Date(e.at).toLocaleString())}</td><td>${esc(e.side)}</td><td>${esc(e.size)}</td><td>${money(e.entry)}</td><td>${money(e.exit)}</td><td class="${Number(e.pnl) < 0 ? "bad" : "good"}">${money(e.pnl)}</td></tr>`,
+        )
+        .join("")
+    : '<tr><td colspan="6">No closed trades yet.</td></tr>';
   const outcomes = Object.fromEntries(
-    s.events
+    events
       .filter((e) => e.kind === "review_outcome")
       .map((e) => [e.ticker, e.payouts.UP === "1" ? "Up won" : "Down won"]),
   );
   const entries = new Set(
-    s.events.filter((e) => e.kind === "entry").map((e) => e.ticker),
+    events.filter((e) => e.kind === "entry").map((e) => e.ticker),
   );
-  const decisions = s.events
+  const decisions = events
     .filter((e) => e.kind === "codex")
     .flatMap((e) => e.decisions.map((decision) => ({ ...decision, at: e.at })))
     .slice(-20)
@@ -279,12 +295,23 @@ function render(update) {
         })
         .join("")
     : "No decisions yet.";
-  const login = update.login;
-  $("loginstatus").textContent = login.status;
-  $("codexlogin").hidden = login.authenticated;
-  $("codexlogin").disabled =
-    login.running || Object.values(update.accounts).some((a) => !a.paused);
-  $("loginoutput").textContent = login.authenticated ? "" : login.output;
+}
+
+async function loadHistory(minutes) {
+  if (historyLoading.has(minutes)) return;
+  historyLoading.add(minutes);
+  try {
+    const response = await fetch("/api/history?minutes=" + minutes),
+      data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    histories[minutes] = data.events;
+    historyVersions[minutes] = data.version;
+    if (selectedMinutes === minutes) renderHistory(minutes);
+  } catch (_) {
+    // Keep the last successful history; the live connection will retry later.
+  } finally {
+    historyLoading.delete(minutes);
+  }
 }
 const stream = new EventSource("/api/events");
 stream.onmessage = (event) => render(JSON.parse(event.data));

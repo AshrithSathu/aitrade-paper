@@ -800,6 +800,23 @@ def run():
                         assert b"window.onpopstate" in content
                         assert b'kind === "review_outcome"' in content
                         assert b'kind === "codex"' in content
+                        assert b'fetch("/api/history?minutes=" + minutes)' in content
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/status?minutes=5",
+                headers={"Host": "127.0.0.1:8765"},
+            )
+            with urllib.request.urlopen(req) as response:
+                content = response.read()
+                status = json.loads(content)
+                assert "events" not in status["state"]
+                assert status["event_version"] == 0
+                assert len(content) < 10000
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/history?minutes=5",
+                headers={"Host": "127.0.0.1:8765"},
+            )
+            with urllib.request.urlopen(req) as response:
+                assert json.loads(response.read()) == {"version": 0, "events": []}
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
             )

@@ -24,3 +24,13 @@ The persistent volume remains mounted at `/app/data`. Source-code moves must nev
 Boot always pauses both accounts. Resume only a previously authorized run, preserving its deadline and profit baseline. Never use a deployment to implicitly start a new run.
 
 A controlled reset marker under the paper data directory is destructive. It is only for an explicitly requested account/history reset, never a deployment step.
+
+## Network cost
+
+- Polymarket books and Chainlink prices enter the backend over WebSockets. They stay in memory and are never relayed raw to the browser.
+- The dashboard receives a compact, one-way SSE view at most once per second. A WebSocket would carry the same bytes and add protocol code without helping this one-way UI.
+- Start, Stop, settings, status and versioned history use ordinary HTTP. The browser reloads history only after its event version changes.
+- PostgreSQL uses Railway private networking. Recent Chainlink context and contract history are cached by the existing feed process; adding Redis would duplicate small in-process caches.
+- The persistent volume stores account state, review files and Codex login only. PostgreSQL stores the rolling price observations.
+
+Railway publishes current usage and egress rates in its [pricing documentation](https://docs.railway.com/pricing). Re-measure `/api/events` after changes that add dashboard fields; transport choice cannot compensate for oversized repeated payloads.

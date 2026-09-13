@@ -100,12 +100,71 @@ ORIGINS = allowed_origins(os.environ.get("PUBLIC_ORIGIN", ""))
 
 
 def publish(engine, view):
+    state = engine.state
+    market = engine.snapshots.get("BTC") or {}
+    underlying = market.get("underlying") or {}
+    review = engine.last_codex or {}
+    payload = review.get("payload") or {}
+    review_market = (payload.get("markets") or {}).get("BTC") or {}
     view.update(
-        state=copy.deepcopy(engine.state),
-        account=trading.account(engine.state),
-        markets=copy.deepcopy(engine.snapshots),
+        state=copy.deepcopy(
+            {
+                key: state.get(key)
+                for key in (
+                    "halted",
+                    "stop_reason",
+                    "positions",
+                    "pending",
+                    "phases",
+                    "run_until",
+                )
+            }
+        ),
+        account=trading.account(state),
+        markets={
+            "BTC": copy.deepcopy(
+                {
+                    **{
+                        key: market.get(key)
+                        for key in (
+                            "ticker",
+                            "open_time",
+                            "close_time",
+                            "received_at",
+                            "yes_ask_dollars",
+                            "no_ask_dollars",
+                        )
+                    },
+                    "underlying": {
+                        key: underlying.get(key)
+                        for key in (
+                            "price",
+                            "opening_price",
+                            "delta",
+                            "source_at",
+                            "error",
+                        )
+                    },
+                }
+            )
+            if market
+            else {},
+        },
         errors=copy.deepcopy(engine.errors),
-        codex=copy.deepcopy(engine.last_codex),
+        codex=copy.deepcopy(
+            {
+                "status": review.get("status"),
+                "response": review.get("response"),
+                "payload": {
+                    "at": payload.get("at"),
+                    "markets": {"BTC": {"ticker": review_market.get("ticker")}},
+                },
+            }
+        )
+        if review
+        else None,
+        event_version=len(state["events"]),
+        revision=view.get("revision", 0) + 1,
     )
 
 
@@ -124,7 +183,6 @@ def status(minutes):
         }
         for m, e in engines.items()
     }
-    data["state"]["events"] = data["state"]["events"][-300:]
     return data
 
 
@@ -217,25 +275,53 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
             self.connection.settimeout(20)
+            last_revisions = None
+            last_write = 0.0
             try:
                 while True:
                     with lock:
                         refresh_login()
-                        data = {
-                            "accounts": {m: status(m) for m in engines},
-                            "login": dict(login),
-                        }
-                    self.wfile.write(
-                        ("data: " + json.dumps(data, default=str) + "\n\n").encode()
-                    )
-                    self.wfile.flush()
+                        revisions = tuple(views[m]["revision"] for m in engines)
+                        elapsed = time.monotonic() - last_write
+                        if last_revisions is None or (
+                            revisions != last_revisions and elapsed >= 1
+                        ):
+                            data = {
+                                "accounts": {m: status(m) for m in engines},
+                                "login": dict(login),
+                            }
+                            message = (
+                                "data: " + json.dumps(data, default=str) + "\n\n"
+                            ).encode()
+                            last_revisions = revisions
+                            last_write = time.monotonic()
+                        elif elapsed >= 15:
+                            message = b": keepalive\n\n"
+                            last_write = time.monotonic()
+                        else:
+                            message = None
+                            wait = min(15 - elapsed, max(0.05, 1 - elapsed))
+                    if message:
+                        self.wfile.write(message)
+                        self.wfile.flush()
                     with idle:
-                        idle.wait(timeout=15)
+                        idle.wait(timeout=wait if message is None else 1)
             except (OSError, TimeoutError):
                 pass
             return
         if path == "/api/history":
-            return self.send(200, json.loads(engine.state_path.read_text())["events"])
+            with lock:
+                events = engine.state["events"]
+                data = {
+                    "version": len(events),
+                    "events": [
+                        copy.deepcopy(event)
+                        for event in events
+                        if event.get("kind")
+                        in ("codex", "review_outcome", "entry", "exit")
+                    ][-200:],
+                }
+            return self.send(200, data)
         self.send(404, {"error": "Not found"})
 
     def do_POST(self):
