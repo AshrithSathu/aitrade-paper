@@ -109,6 +109,11 @@ def market_brief(m):
     contract = m.get("contract_history", {})
     brief["contract_history"] = {k: v for k, v in contract.items() if k != "outcomes"}
     brief["contract_history"]["columns"] = ["timestamp_seconds", "probability"]
+    brief["contract_history"]["timing_note"] = (
+        "This one-minute REST series commonly has no post-open point at the early review. "
+        "Use fresh WebSocket quotes, depth and flow for current contract state; normal "
+        "REST publication lag alone is not missing live data."
+    )
     brief["contract_history"]["outcomes"] = {
         side: [[point["t"], point["p"]] for point in points]
         for side, points in contract.get("outcomes", {}).items()
@@ -180,7 +185,7 @@ def market_brief(m):
     brief["context_limits"] = [
         "Recent observed book changes and trade prints are bounded local samples; no guaranteed complete trade tape or verified aggressor attribution",
         "Public taker-fill summaries add pre-opening and recent participation without trader identities; they do not prove direction",
-        "No calibrated probability model or matched past-market outcomes; indicators alone do not establish an edge",
+        "No external calibrated probability model or matched past-market outcomes. Estimate direction from the combined supplied evidence; this limitation alone is not a reason to WAIT",
         "Provider identifiers, images and duplicate market metadata omitted; market rules and fee details retained",
     ]
     return brief
@@ -231,10 +236,11 @@ def codex_decision(payload, cancel):
         "For entries return a conditional plan: quantity, maximum acceptable ask as limit_price, valid_for_seconds from the snapshot (15-30), maximum absolute BTC/USD movement from the snapshot as max_underlying_drift_usd, and maximum absolute selected-contract ask movement as max_contract_drift. Choose these bounds from current volatility and liquidity. "
         'Use "0" for all five plan values when choosing WAIT. Do not assume a short-duration market guarantees profit. '
         "Evaluate historical context, data quality, time remaining, spread, depth, account exposure and loss budget. "
-        "Use the supplied multi-timeframe signals as context, never mechanical entry rules. Incomplete windows and gaps reduce confidence; indicators derived from the same TWAP are not independent evidence. "
-        "Missing live or historical data means WAIT for entries; explain uncertainty. Hard spending limits cannot be overridden. "
+        "Use the supplied multi-timeframe signals as context, never mechanical entry rules. Incomplete windows and gaps reduce confidence; they do not automatically require WAIT when live data and enough recent history are available. Indicators derived from the same TWAP are correlated, so weigh them together rather than counting them as separate confirmations. "
+        "Make the best probability judgment supported by the combined price path, opening distance, live contract prices, book changes, trade activity, fees and time remaining. A missing external calibration model or the normal lag of one-minute contract history is not by itself a reason to WAIT. Do not enter merely to create activity. "
+        "Missing required live books, current Chainlink TWAP or opening TWAP means WAIT. Hard spending limits cannot be overridden. "
         "Decisions expire 30 seconds after the supplied snapshot. Old tickers or changed positions cannot be acted on. "
-        "When execution_allowed=false, this is a preview only. Return structured decisions and reasoning.\\n"
+        "When execution_allowed=false, this is a preview only. When it is true, describe the result as a paper-trading decision, not a preview. Return structured decisions and reasoning.\\n"
         + json.dumps(payload, default=str)
     )
     with tempfile.TemporaryDirectory() as folder:

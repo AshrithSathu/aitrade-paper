@@ -20,7 +20,7 @@ The prompt is a structured decision brief, not a provider response dump. Prices 
 | Recent decisions/events | Latest ten events, including actions; long reason text capped at 500 characters | Recent execution feedback without recursive prompt growth |
 | Provider IDs, images, nested event copies, operational flags | Omitted | Duplicated or unrelated to entry decisions; execution still validates identifiers internally |
 
-Not collected: independently verified aggressor intent, exchange spot volume, or a calibrated probability baseline from matched resolved markets. These limitations are explicit in the brief. Static book size and reported trade sides must not be treated as guaranteed fills or forecasts.
+Not collected: independently verified aggressor intent, exchange spot volume, or an external calibrated probability baseline from matched resolved markets. These limitations are explicit in the brief but do not automatically veto a trade. Terra must estimate direction from the combined supplied evidence and may still WAIT when that evidence does not clear the fee-adjusted price.
 
 Full books remain in engine memory for validation. Database price observations have 24-hour retention. Saved review files contain the exact decision brief sent to AI. A summary is not a backup of every provider field.
 
@@ -29,6 +29,8 @@ Full books remain in engine memory for validation. Database price observations h
 The briefing includes 30/60/180-second summaries of observed book mid-price and top-five depth changes, and public WebSocket trade-event counts, BUY/SELL contract totals and volume-weighted prices. These are provider-reported sides, not verified aggressor attribution. Book samples are at most once per second; at most 301 samples and 5,000 trade events are held in memory per market. Coverage, sample gaps and trade-buffer saturation are explicit. Reconnects and restarts clear this context; missing activity is not proof of no trading.
 
 Opening distance is also expressed in units of the RMS of up to 30 contiguous one-minute TWAP changes (at least 15 required). This is descriptive context, not a calibrated probability, expected future move or entry rule. Existing 24-hour recording continues unchanged; older data cannot be created instantly.
+
+The CLOB contract-history REST series has one-minute resolution and commonly has no post-open point at the early review. The brief labels this as expected publication lag and directs Terra to use the fresh WebSocket quotes, depth and flow for current contract state. Partial long-term history and isolated gaps reduce confidence without automatically forcing WAIT when current books, opening TWAP and recent history are present.
 
 ## Conditional execution
 
