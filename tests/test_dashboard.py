@@ -179,6 +179,19 @@ def run():
         common.dec(row["price"]) != common.dec(".4")
         for row in stream.books["UP"]["bids"]
     )
+    try:
+        stream.update(
+            {
+                "event_type": "price_change",
+                "market": m["condition_id"],
+                "timestamp": str(int((time.time() + 10) * 1000)),
+                "price_changes": [],
+            }
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Future orderbook timestamp accepted")
     trade = {
         **body,
         "event_type": "last_trade_price",

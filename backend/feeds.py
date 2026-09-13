@@ -240,6 +240,9 @@ class BookStream:
             return
         if kind not in ("book", "price_change", "tick_size_change"):
             return
+        stamp = common.dec(event["timestamp"]) / 1000
+        if not stamp.is_finite() or stamp <= 0 or common.dec(time.time()) - stamp < -2:
+            raise ValueError("Orderbook source timestamp is invalid")
         changes = event.get("price_changes", []) if kind == "price_change" else [event]
         pending = self.books.copy()
         copied = set()
@@ -293,24 +296,32 @@ class BookStream:
                     if size:
                         body[key].append({"price": str(price), "size": str(size)})
                 body["timestamp"] = event["timestamp"]
-            checked = market.apply_book(
-                {
-                    key: copy.deepcopy(self.market[key])
-                    for key in ("tokens", "condition_id")
-                },
-                body,
-                side,
-                require_fresh=False,
-            )
             if kind == "price_change":
-                for key, qkind in [("best_bid", "bid"), ("best_ask", "ask")]:
+                bid = max(
+                    (common.dec(row["price"]) for row in body["bids"]), default=None
+                )
+                ask = min(
+                    (common.dec(row["price"]) for row in body["asks"]), default=None
+                )
+                if bid is not None and ask is not None and bid >= ask:
+                    raise ValueError("Crossed or locked Polymarket orderbook")
+                for key, best in [("best_bid", bid), ("best_ask", ask)]:
                     if (
                         change.get(key)
                         and common.dec(change[key]) >= 0
-                        and market.quote(checked, side, qkind)
-                        != common.dec(change[key])
+                        and best != common.dec(change[key])
                     ):
                         raise ValueError("Book delta out of sync")
+            else:
+                market.apply_book(
+                    {
+                        key: copy.deepcopy(self.market[key])
+                        for key in ("tokens", "condition_id")
+                    },
+                    body,
+                    side,
+                    require_fresh=False,
+                )
             pending[side] = body
         self.books = pending
         self.last_message = time.monotonic()
