@@ -99,6 +99,13 @@ def allowed_origins(public_origin):
 ORIGINS = allowed_origins(os.environ.get("PUBLIC_ORIGIN", ""))
 
 
+def restore_run(engine):
+    if engine.state.get("paused") is False and engine.state.get("run_until"):
+        engine.expire_run()
+    else:
+        engine.pause()
+
+
 def publish(engine, view):
     state = engine.state
     market = engine.snapshots.get("BTC") or {}
@@ -203,10 +210,12 @@ def worker(engine, view):
                 publish(engine, view)
                 view["busy"] = False
                 idle.notify_all()
-        time.sleep(
-            float(engine.config["interval"])
-            + random.uniform(0, float(engine.config["jitter"]))
-        )
+        interval = float(engine.config["interval"])
+        if engine.state["paused"] and not any(
+            engine.state[key] for key in ("positions", "pending")
+        ):
+            interval = max(2, interval)
+        time.sleep(interval + random.uniform(0, float(engine.config["jitter"])))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -447,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError("Unknown action")
                 if not view["busy"]:
-                    common.atomic_json(engine.state_path, s)
+                    engine.save_state()
                     publish(engine, view)
                 idle.notify_all()
             self.send(200, {"ok": True})
@@ -495,12 +504,12 @@ if __name__ == "__main__":
         if state.get("venue") != "polymarket":
             raise ValueError("Wrong paper account venue")
         engine = trading.Engine(state, settings, feed, data_dir=directory)
-        engine.pause()
+        restore_run(engine)
         view = {"busy": False, "error": None, "updated": None}
         engines[minutes] = engine
         views[minutes] = view
         settings_by[minutes] = settings
-        common.atomic_json(engine.state_path, state)
+        engine.save_state(force=True)
         common.atomic_json(directory / "settings.json", settings)
         publish(engine, view)
     for minutes, engine in engines.items():

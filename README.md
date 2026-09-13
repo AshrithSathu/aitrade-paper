@@ -43,7 +43,7 @@ DATABASE_URL=... python3 -m tests.test_postgres
 
 ## Runtime behavior
 
-- Both accounts always boot stopped. Each has its own balance, limits, run deadline and review history.
+- A stopped account stays stopped after restart. An active timed run resumes only until its existing deadline. Each account has its own balance, limits and review history.
 - Start enables a timed session, including waiting for data. AI reviews and entries still require fresh validated data.
 - Reviews start 15 seconds after opening for both durations, with a 60-second dispatch window (15–under 75 seconds) to wait for validated data. Codex returns a short-lived conditional plan; the current BTC price and selected contract ask must remain inside its limits before entry. Missed windows, WAIT decisions and errors skip that market.
 - Codex has a 25-second timeout. Decisions older than 30 seconds are rejected. Pause cancels AI; open trades continue to official settlement.
@@ -60,7 +60,7 @@ The volume paths remain unchanged:
 - `data/polymarket/5m/`: 5-minute account and reviews.
 - `/app/data/codex/`: Railway Codex login.
 
-Detailed review files expire after 30 days. Trade/account history remains. Live books stay in memory. Account writes are atomic; price history is shared between accounts.
+Detailed review files expire after 30 days. Trade/account history remains. Live books stay in memory. Account writes are atomic and occur only after a state change; price history is shared between accounts.
 
 The browser never receives raw order books, provider metadata, signal history or AI input payloads. Those remain inside the trading service. The browser caches one 20-decision history page for each tab; PostgreSQL remains the only database, so Redis is unnecessary at this traffic level.
 

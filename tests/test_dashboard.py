@@ -761,6 +761,24 @@ def run():
             dashboard.views[minutes] = {"busy": False, "error": None}
             dashboard.settings_by[minutes] = settings
             dashboard.publish(engine, dashboard.views[minutes])
+        five = dashboard.engines["5"]
+        with patch.object(common, "atomic_json") as write:
+            five.save_state()
+            five.save_state()
+            assert write.call_count == 1
+            five.state["cash"] = "999"
+            five.save_state()
+            assert write.call_count == 2
+        five.state["cash"] = "1000"
+        five.start_run(1)
+        dashboard.restore_run(five)
+        assert not five.state["paused"]
+        five.pause()
+        dashboard.restore_run(five)
+        assert five.state["paused"]
+        five.state = common.initial_state("1000")
+        five.saved_state = None
+        dashboard.publish(five, dashboard.views["5"])
         server = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

@@ -57,6 +57,7 @@ class Engine:
         self.last_cleanup = 0
         self.review_lock = threading.RLock()
         self.cancel_review = threading.Event()
+        self.saved_state = None
         self.state.setdefault("reviewed_markets", {})
         self.state.setdefault("evaluations", {})
         self.pool = ThreadPoolExecutor(max_workers=1)
@@ -67,6 +68,12 @@ class Engine:
             )
             if self.last_codex["status"] == "running":
                 self.last_codex["status"] = "interrupted"
+
+    def save_state(self, force=False):
+        current = json.dumps(self.state, default=str, sort_keys=True)
+        if force or current != self.saved_state:
+            common.atomic_json(self.state_path, self.state)
+            self.saved_state = current
 
     def emit(self, kind, **fields):
         self.state["events"].append(
@@ -208,7 +215,7 @@ class Engine:
             # Persist the attempt before launching Codex: restart/error must never retry this market.
             for a in assets:
                 self.state["reviewed_markets"][a] = self.snapshots[a]["ticker"]
-            common.atomic_json(self.state_path, self.state)
+            self.save_state()
         elif trigger == "manual_account_review":
             assets = list(self.config["assets"])
         else:
@@ -565,4 +572,4 @@ class Engine:
         self.limits()
         self.complete_review()
         self.request_review("market_entry_review")
-        common.atomic_json(self.state_path, s)
+        self.save_state()

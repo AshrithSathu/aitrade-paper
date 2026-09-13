@@ -21,7 +21,7 @@ The persistent volume remains mounted at `/app/data`. Source-code moves must nev
 4. Deploy the Dockerfile with `backend/`, `web/`, `feeds/` and `infra/`. The Docker allowlist excludes data, secrets and development files.
 5. Verify deployment success, both account statuses, Codex login and the SSE stream through the running service.
 
-Boot always pauses both accounts. Resume only a previously authorized run, preserving its deadline and profit baseline. Never use a deployment to implicitly start a new run.
+A manually stopped account stays stopped after restart. A previously authorized active run resumes with its existing deadline and profit baseline; an expired run stops during boot. A deployment never creates a new run.
 
 A controlled reset marker under the paper data directory is destructive. It is only for an explicitly requested account/history reset, never a deployment step.
 
@@ -32,5 +32,6 @@ A controlled reset marker under the paper data directory is destructive. It is o
 - Start, Stop, settings, status and versioned history use ordinary HTTP. The browser reloads history only after its event version changes.
 - PostgreSQL uses Railway private networking. Recent Chainlink context and contract history are cached by the existing feed process; adding Redis would duplicate small in-process caches.
 - The persistent volume stores account state, review files and Codex login only. PostgreSQL stores the rolling price observations.
+- Stopped accounts refresh their display snapshot every two seconds; active accounts retain their configured sub-second check interval. State files are rewritten only when account state changes.
 
 Railway publishes current usage and egress rates in its [pricing documentation](https://docs.railway.com/pricing). Re-measure `/api/events` after changes that add dashboard fields; transport choice cannot compensate for oversized repeated payloads.
