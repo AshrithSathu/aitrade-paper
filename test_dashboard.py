@@ -60,79 +60,81 @@ def run():
         assert f.market(raw['slug'])['payouts'] is None
         result['tokens'][0]['winner']=True;assert f.market(raw['slug'])['payouts']=={'UP':'1','DOWN':'0'}
         result['is_50_50_outcome']=True;assert f.market(raw['slug'])['payouts']=={'UP':'0.5','DOWN':'0.5'}
-    with tempfile.TemporaryDirectory() as folder,patch.object(p,'DATA',Path(folder)),patch.object(p,'STATE_FILE',Path(folder)/'state.json'),patch.object(p,'codex_decision',return_value={'decisions':[],'reason':'fixture'}):
+    from concurrent.futures import Future
+    with tempfile.TemporaryDirectory() as folder,patch.object(p,'DATA',Path(folder)),patch.object(p,'STATE_FILE',Path(folder)/'state.json'):
         c=dict(p.DEFAULTS,size='1');s=p.initial_state('1000');f=FakeFeed();e=p.Engine(s,c,f)
-        def fresh():
-            for m in f.data.values():
-                m.update(fee_rate='.07',order_limits={side:{'minimum':'1','tick':'.01'} for side in ['UP','DOWN']},contract_history={'outcomes':{'UP':[{'t':1,'p':'.5'}],'DOWN':[{'t':1,'p':'.5'}]}},received_at=p.now().isoformat(),yes_ask_size_fp='100',no_ask_size_fp='100',yes_bid_size_fp='100',no_bid_size_fp='100')
-                m['underlying'].update(source_at=p.now().isoformat(),history={'samples':2,'bars':[]})
-            e.tick()
+        clock=[p.now()];start=clock[0]
         def decision(action='ENTER_UP',quantity='1',limit_price='.85'):
             return dict(asset='BTC',ticker=f.data['BTC']['ticker'],action=action,quantity=quantity,limit_price=limit_price,reason='fixture')
-        def apply(d,original=None):
-            p.validate_decisions({'decisions':[d],'reason':'fixture'})
-            e.apply_decision(d,original or e.payload('test'))
-        fresh();assert not s['positions'] and s['paused']
-        # Rules never enter, even when old entry conditions would have matched.
-        fresh();assert not s['positions']
-        s['paused']=False;e.sent_at=p.time.monotonic()
-        apply(decision());assert 'BTC' in s['positions']
-        # No price-based stop or take-profit: only AI closes the position.
-        f.data['BTC']['yes_bid_dollars']='.1';fresh();assert 'BTC' in s['positions']
-        f.data['BTC']['yes_bid_dollars']='.99';fresh();assert 'BTC' in s['positions']
-        apply(decision('HOLD','0','0'));assert 'BTC' in s['positions']
-        apply(decision('EXIT','0','.995'));assert 'BTC' in s['positions']
-        apply(decision('EXIT','0','.9'));assert not s['positions'] and s['trades']==1
-        # AI can re-enter the same market; there is no one-trade-per-market rule.
-        apply(decision('ENTER_DOWN'));assert s['positions']['BTC']['side']=='DOWN'
-        apply(decision('EXIT','0','0'));assert s['trades']==2
-        # No entry window or fixed bands.
-        f.data['BTC']['close_time']=(p.now()+timedelta(minutes=14)).isoformat()
-        f.data['BTC']['yes_ask_dollars']='.3';fresh();apply(decision(limit_price='.4'));assert 'BTC' in s['positions']
-        # Changed position, stale review and market rollover reject old decisions.
-        original=e.payload('test');original['positions']['BTC']['opened_at']='old'
-        apply(decision('EXIT','0','0'),original);assert 'BTC' in s['positions']
-        apply(decision('EXIT','0','0'));assert not s['positions']
-        original=e.payload('test');original['at']=(p.now()-timedelta(seconds=31)).isoformat()
-        apply(decision(),original);assert not s['positions']
-        original=e.payload('test');original['markets']['BTC']['ticker']='OLD'
-        apply(decision(),original);assert not s['positions']
-        # Spend, quantity, depth, history and cumulative worst-case loss controls.
-        apply(decision(quantity='2'));assert not s['positions']
-        e.config['max_trade']=p.dec('.1');apply(decision());assert not s['positions'];e.config['max_trade']=p.dec('10')
-        e.snapshots['BTC']['underlying']['history']={'error':'missing'};apply(decision());assert not s['positions']
-        fresh();e.snapshots['BTC']['yes_ask_size_fp']='0';apply(decision());assert not s['positions']
-        fresh();saved_pnl=s['realized_pnl'];s['realized_pnl']='0';e.config['daily_loss']=p.dec('-.01');apply(decision());assert not s['positions'];s['realized_pnl']=saved_pnl
-        e.config['daily_loss']=p.dec('-600');apply(decision());assert 'BTC' in s['positions']
-        # Settlement remains exchange-defined, even when paused, and pays only once.
-        ticker=s['positions']['BTC']['ticker'];s['positions']['BTC']['close_time']=(p.now()-timedelta(seconds=1)).isoformat();s['paused']=True
-        fresh();assert ticker in s['pending']
-        f.results[ticker]={'UP':'1','DOWN':'0'};e.settle_checked.clear();fresh();assert ticker not in s['pending']
-        cash=s['cash'];fresh();assert s['cash']==cash and p.load_state('1000')==s
-        # Async preview and pause invalidate trading authority.
-        from concurrent.futures import Future
-        def completed(execute,epoch):
-            original=e.payload('test');original['execution_allowed']=execute
-            e.last_codex={'status':'running','payload':original,'response':None};e.review_path=Path(folder)/'review.json'
-            e.review_epoch=epoch;e.future=Future();e.future.set_result({'decisions':[decision()],'reason':'fixture'})
+        def fresh(seconds):
+            clock[0]=start+timedelta(seconds=seconds)
+            for m in f.data.values():
+                m.update(open_time=start.isoformat(),close_time=(start+timedelta(minutes=15)).isoformat(),fee_rate='.07',
+                    order_limits={side:{'minimum':'1','tick':'.01'} for side in ['UP','DOWN']},
+                    contract_history={'outcomes':{'UP':[{'t':1,'p':'.5'}],'DOWN':[{'t':1,'p':'.5'}]}},
+                    received_at=clock[0].isoformat(),yes_ask_size_fp='100',no_ask_size_fp='100',yes_bid_size_fp='100',no_bid_size_fp='100')
+                m['underlying'].update(source_at=clock[0].isoformat(),history={'samples':2,'bars':[]})
+            e.tick()
+        def finish(action='WAIT'):
+            e.future.set_result({'decisions':[decision(action)],'reason':'fixture'})
             e.complete_review()
-        completed(True,e.epoch);assert not s['positions'] # paused
-        s['paused']=False
-        completed(False,e.epoch);assert not s['positions'] # manual preview
-        completed(True,e.epoch-1);assert not s['positions'] # paused then resumed
-        completed(True,e.epoch);assert 'BTC' in s['positions']
-        # WAIT can be reviewed again on the next configured interval.
-        apply(decision('EXIT','0','0'))
-        e.sent_at=0;fresh();assert e.future is not None
-        e.pool.shutdown(wait=True);e.complete_review();assert not s['positions']
-        e.feed_pool.shutdown(wait=True)
-        for bad in [dict(size='NaN'),dict(size='1.001'),dict(daily_loss='1'),dict(codex_mode='gate')]:
+        def apply(d,original=None):e.apply_decision(d,original or e.payload('market_entry_review'))
+        with patch.object(p,'now',side_effect=lambda:clock[0]),patch.object(e.pool,'submit',side_effect=lambda *args:Future()) as calls:
+            fresh(180);assert calls.call_count==0 and s['paused']
+            s['paused']=False;fresh(179);assert calls.call_count==0
+            fresh(180);assert calls.call_count==1 and e.future is not None
+            assert p.load_state('1000')['reviewed_markets']['BTC']==f.data['BTC']['ticker']
+            finish();fresh(200);assert calls.call_count==1 and not s['positions'] # WAIT consumes market
+            s['paused']=True;s['paused']=False;fresh(220);assert calls.call_count==1
+            restored=p.Engine(p.load_state('1000'),c,f);restored.snapshots=copy.deepcopy(e.snapshots)
+            assert not restored.review_due('BTC') # restart cannot retry
+            restored.pool.shutdown();restored.feed_pool.shutdown()
+            # A manual preview never uses the next market's scheduled attempt or executes orders.
+            s['reviewed_markets'].clear()
+            assert e.request_review('manual_account_review');finish('ENTER_UP');assert not s['positions'] and not s['reviewed_markets']
+            fresh(230);assert e.future is not None
+            e.future.set_exception(RuntimeError('AI unavailable'));e.complete_review()
+            n=calls.call_count;fresh(235);assert calls.call_count==n # errors never retry
+            # Missing data through the dispatch window means zero calls, even after data recovers.
+            s['reviewed_markets'].clear();f.data['BTC']['underlying']['error']='missing opening'
+            fresh(180);assert calls.call_count==n
+            f.data['BTC']['underlying'].pop('error');fresh(240);assert calls.call_count==n
+            # Preview and pause/resume invalidation cannot grant trading authority.
+            fresh(180);original=e.last_codex['payload'];s['paused']=True;finish('ENTER_UP');assert not s['positions']
+            s['paused']=False;s['reviewed_markets'].clear();fresh(180);e.epoch+=1;finish('ENTER_UP');assert not s['positions']
+            # Entry guards remain active in the shared execution path.
+            original=e.payload('market_entry_review');original['at']=(clock[0]-timedelta(seconds=31)).isoformat();apply(decision(),original);assert not s['positions']
+            original=e.payload('market_entry_review');original['markets']['BTC']['ticker']='OLD';apply(decision(),original);assert not s['positions']
+            apply(decision(),e.payload('manual_account_review'));assert not s['positions']
+            apply(decision(quantity='2'));assert not s['positions']
+            e.config['max_trade']=p.dec('.1');apply(decision());assert not s['positions'];e.config['max_trade']=p.dec('10')
+            e.snapshots['BTC']['yes_ask_size_fp']='0';apply(decision());assert not s['positions']
+            fresh(181);e.snapshots['BTC']['underlying']['history']={'samples':0};apply(decision());assert not s['positions']
+            fresh(182);e.config['daily_loss']=p.dec('-.01');apply(decision());assert not s['positions'];e.config['daily_loss']=p.dec('-600')
+            apply(decision());assert 'BTC' in s['positions']
+            cost=p.dec('0.8')+p.trade_fee({'fee_rate':'.07'},p.dec(1),p.dec('.8'));assert p.dec(s['cash'])==1000-cost
+            f.data['BTC']['yes_bid_dollars']='.01';fresh(200);assert 'BTC' in s['positions']
+            apply(decision('EXIT','0','0'));assert 'BTC' in s['positions'] # no early exit path
+            f.data['BTC']['yes_bid_dollars']='.99';fresh(250);assert 'BTC' in s['positions']
+            # Official settlement, including while paused, pays exactly once.
+            ticker=s['positions']['BTC']['ticker'];s['paused']=True;fresh(900);assert ticker in s['pending']
+            f.results[ticker]={'UP':'1','DOWN':'0'};e.settle_checked.clear();fresh(901);assert not s['pending'] and s['trades']==1
+            cash=s['cash'];fresh(902);assert s['cash']==cash and p.dec(cash)==1001-cost
+            # The next market gets one new review and may enter again.
+            start=clock[0];f.data['BTC']['ticker']='btc-updown-15m-1789263900';s['paused']=False
+            fresh(180);assert e.future is not None;finish('ENTER_DOWN');assert s['positions']['BTC']['side']=='DOWN'
+            n=calls.call_count;fresh(200);assert calls.call_count==n
+            s['paused']=True;fresh(900);ticker=next(iter(s['pending']));f.results[ticker]={'UP':'1','DOWN':'0'}
+            e.settle_checked.clear();fresh(901);assert s['trades']==2 and s['losses']==1
+        e.pool.shutdown(wait=True);e.feed_pool.shutdown(wait=True)
+        for bad in [dict(size='NaN'),dict(size='1.001'),dict(daily_loss='1'),dict(codex_interval='60')]:
             try:p.validate({**c,**bad})
             except ValueError:pass
             else:raise AssertionError(bad)
-        try:p.validate_decisions({'decisions':[decision(),decision()],'reason':'bad'})
-        except ValueError:pass
-        else:raise AssertionError('Duplicate actions accepted')
-    print('Passed Polymarket public data parsing; AI-only enter/hold/exit, repeated reviews, limits, stale decisions, pause/preview isolation and settlement')
+        for actions in [[decision(),decision()],[decision('EXIT')],[decision('HOLD')]]:
+            try:p.validate_decisions({'decisions':actions,'reason':'bad'})
+            except ValueError:pass
+            else:raise AssertionError('Invalid actions accepted')
+    print('Passed parsing, once-per-market scheduling, restart/error/preview isolation, entry limits and hold-to-settlement accounting')
 
 if __name__=='__main__':run()

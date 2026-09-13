@@ -21,18 +21,20 @@ Bun scripts are optional shortcuts (`bun run start`, `bun run test`); the projec
 - Public CLOB API: UP/DOWN books, current fee/size/tick parameters, outcome-price history and official settlement.
 - Public RTDS: Chainlink 60-second TWAP observations, collected through `chainlink.mjs`.
 - Python: record data, construct Codex snapshots, validate responses, enforce budgets and simulate fills.
-- Codex CLI: choose ENTER_UP, ENTER_DOWN, WAIT, HOLD or EXIT, including entry quantity and acceptable execution price.
+- Codex CLI: choose ENTER_UP, ENTER_DOWN or WAIT once per market, including entry quantity and maximum entry price.
 - Local dashboard: controls, positions, PnL, data health, exact AI inputs/outputs and history.
 
 Read [the research and sources](POLYMARKET_RESEARCH.md) for the venue-specific details and verified endpoints.
 
 ## AI-only decisions
 
-There are no fixed entry ranges, time windows, price stops, take-profit targets, Observe/Gate switches or one-trade-per-market restrictions. Reviews run at the configured interval (default 60 seconds), and on a new market when the reviewer is free. Only one review runs at a time; the next review uses fresh data instead of a stale queue.
+The only trading mode is one entry review three minutes into each 15-minute market. Dispatch is allowed from 180 to under 240 seconds after opening, allowing for feed/processing delays. It requires fresh books, underlying price, exact opening tick and history. Missing that window skips the market. Selected assets that become ready together share one Codex call; each asset/market gets at most one scheduled attempt.
 
-AI decisions expire 30 seconds after their input snapshot. Before execution, code rechecks current market/position identity, data freshness, AI price limits, displayed size, venue minimum quantity/tick and account budgets. WAIT/HOLD can be reconsidered. EXIT closes the entire position. Invalid, stale or failed reviews cause no orders; an existing position stays open pending a later decision or settlement.
+AI chooses UP, DOWN or WAIT and the quantity/maximum entry price. WAIT, errors, stale decisions or rejected fills skip that market; there are no automatic retries. The attempt is persisted before calling Codex, so pause/resume or restart cannot repeat it. Positions are held until official settlement, without early AI exits, stop-losses or take-profit rules. Continuous market collection and marking do not call AI.
 
-Pause blocks all AI orders, including exits, and invalidates in-flight trading decisions. Price marks and official settlement accounting still update. Manual Review now is always a preview, even while enabled. Restart never replays saved decisions.
+AI decisions expire 30 seconds after their input snapshot. Before entry, code rechecks current market/position identity, freshness, AI price limit, displayed size, venue minimum quantity/tick and account budgets. No order waits around for a later fill.
+
+Pause blocks entries and invalidates in-flight trading decisions. Marks and official settlement still update. Manual Review now is an additional preview-only call; it neither trades nor consumes the scheduled attempt. Boot always starts paused. Old `codex_interval` settings are discarded on startup.
 
 ## Data and warm-up
 
@@ -44,7 +46,7 @@ RTDS does not guarantee historical backfill. At cold start, the current opening 
 
 ## Paper execution and limits
 
-Paper buys fill at the ask and sells at the bid, only when top-level displayed size covers the quantity. Taker fees use the market's current parameters and are estimated in cash at entry/exit. PnL includes those fees; open positions are marked at bid before any future exit fee. No additional slippage, market impact, rebates or exact wallet fee accounting is simulated.
+Paper buys fill at the ask only when displayed size covers the quantity. Taker fees use current market parameters and are estimated in cash at entry. Positions are marked at bid until official settlement, which pays the outcome value without a simulated sell fee. PnL includes the entry fee. No additional slippage, market impact, rebates or exact wallet fee accounting is simulated.
 
 The default maximum is five shares, matching the observed venue minimum, with a $10 maximum spend per trade including entry fee. AI can choose a smaller quantity only if the market permits it. Hard limits also include available cash and cumulative loss budget. The worst-case cost of active/pending exposure and the proposed entry must fit the remaining budget. Reaching realized loss budget blocks new entries but does not force exits. Zero disables the budget; it does not reset at midnight.
 
@@ -52,7 +54,7 @@ Expired positions await the official closed-market winning-token result or expli
 
 ## Verification and storage
 
-`python3 test_dashboard.py` runs isolated temporary-account checks: market/source/window validation, reversed token mappings, book ordering/depth/timestamps, exact TWAP parsing and persistence, missing opening ticks, fee calculation, AI-only execution, limits, pause/preview isolation, stale decisions and settlement exactly once. No real paper account is traded by these tests.
+`python3 test_dashboard.py` runs isolated temporary-account checks: market/source/window validation, reversed token mappings, book ordering/depth/timestamps, exact TWAP parsing and persistence, missing opening ticks, fee calculation, one-review scheduling, persisted attempts across restarts, errors and missed windows, limits, pause/preview isolation, stale decisions and hold-to-settlement accounting exactly once. No real paper account is traded by these tests.
 
 The dashboard owns one process lock and atomically saves account/events in `data/polymarket/state.json`. Exact reviews are archived in `data/polymarket/codex-reviews/`; `/api/history` exposes all account events. The old Kalshi state remains under `data/` and the migration backup under `data/backups/before-polymarket/`. It is not mixed into the Polymarket account.
 
