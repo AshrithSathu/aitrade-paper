@@ -320,7 +320,7 @@ async function loadHistory(minutes, page = 1) {
       ),
       data = await response.json();
     if (!response.ok) throw Error(data.error);
-    histories[minutes] = data.events;
+    histories[minutes] = data;
     historyVersions[minutes] = data.version;
     if (selectedMinutes === minutes) renderHistory(minutes);
   } catch (_) {
