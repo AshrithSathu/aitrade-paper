@@ -87,6 +87,7 @@ def run():
             assert not e.request_review('manual_account_review') and calls.call_count==0
             s['paused']=False;fresh(179);assert calls.call_count==0
             fresh(180);assert calls.call_count==1 and e.future is not None
+            assert e.last_codex['payload']['phases']['BTC']=='READY_FOR_REVIEW'
             assert p.load_state('1000')['reviewed_markets']['BTC']==f.data['BTC']['ticker']
             finish();fresh(200);assert calls.call_count==1 and not s['positions'] # WAIT consumes market
             s['paused']=True;s['paused']=False;fresh(220);assert calls.call_count==1
@@ -155,6 +156,14 @@ def run():
             try:p.validate_decisions({'decisions':actions,'reason':'bad'})
             except ValueError:pass
             else:raise AssertionError('Invalid actions accepted')
+    from urllib.error import HTTPError
+    with patch.object(p.urllib.request,'urlopen',side_effect=HTTPError('https://example.test/book',403,'Forbidden',{},None)) as request:
+        for _ in range(2):
+            try:p.get_json('https://example.test/book?token_id=test')
+            except ValueError as exc:assert 'example.test/book' in str(exc)
+            else:raise AssertionError('Blocked requests must not succeed')
+        assert request.call_count==1
+    p.HTTP_BLOCKED_UNTIL.clear()
     import dashboard as dashboard
     with patch.object(dashboard.subprocess,'run',return_value=subprocess.CompletedProcess([],0)),patch.object(dashboard.time,'monotonic',return_value=100):
         dashboard.refresh_login();assert dashboard.login['authenticated']

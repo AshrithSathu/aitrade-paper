@@ -68,9 +68,19 @@ def load_state(balance):
 
 def save_state(s): atomic_json(STATE_FILE,s)
 
+HTTP_BLOCKED_UNTIL={}
+
 def get_json(url):
+    endpoint=urllib.parse.urlsplit(url)
+    label=endpoint.netloc+endpoint.path
+    if time.monotonic()<HTTP_BLOCKED_UNTIL.get(label,0):
+        raise ValueError(label+': access denied; waiting 30 seconds before retry')
     req=urllib.request.Request(url,headers={'User-Agent':'local-paper-desk/3','Cache-Control':'no-cache'})
-    with urllib.request.urlopen(req,timeout=8) as r: return json.load(r)
+    try:
+        with urllib.request.urlopen(req,timeout=8) as r:return json.load(r)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403,429):HTTP_BLOCKED_UNTIL[label]=time.monotonic()+30
+        raise ValueError(f'{label}: HTTP {exc.code} {exc.reason}') from exc
 
 def quote(m,side,kind='ask'):
     v=m.get(('yes' if side=='UP' else 'no')+'_'+kind+'_dollars')
@@ -485,13 +495,16 @@ class Engine:
             except Exception as exc:self.errors['settlement:'+ticker]=str(exc)
         for a in c['assets']:
             m=self.snapshots.get(a)
-            if not m or a in self.errors:continue
+            if not m or a in self.errors:
+                s['phases'][a]='WAIT_DATA'
+                continue
             if s['sessions'].get(a)!=m['ticker']:
                 s['sessions'][a]=m['ticker'];self.emit('session',asset=a,ticker=m['ticker'])
             elapsed=(now()-parse_time(m['open_time'])).total_seconds()
             s['phases'][a]=('HOLD_TO_SETTLEMENT' if a in s['positions'] else
                 'REVIEW_USED' if s['reviewed_markets'].get(a)==m['ticker'] else
-                'SKIPPED_WINDOW' if elapsed>=240 else 'WAIT_MINUTE_3' if elapsed<180 else 'WAIT_DATA')
+                'SKIPPED_WINDOW' if elapsed>=240 else 'WAIT_MINUTE_3' if elapsed<180 else
+                'READY_FOR_REVIEW' if self.ready(a,history=True) else 'WAIT_DATA')
         self.limits()
         self.complete_review()
         self.request_review('market_entry_review')
