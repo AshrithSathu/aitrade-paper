@@ -404,13 +404,23 @@ class Engine:
             return reject("Existing position is held to settlement")
         if s["halted"] or self.limits():
             return reject("Account loss limit blocks entry")
-        if not self.ready(a, history=True):
-            return reject(
-                "Fresh Chainlink TWAP, opening tick and historical data required"
-            )
+        snapshot = original["markets"][a]
+        current_underlying = m.get("underlying", {})
+        snapshot_underlying = snapshot.get("underlying", {})
+        current_source = current_underlying.get("source_at")
+        snapshot_source = snapshot_underlying.get("source_at")
+        if (
+            current_underlying.get("price") is None
+            or not current_source
+            or not snapshot_source
+            or common.parse_time(current_source) < common.parse_time(snapshot_source)
+            or not -2
+            <= (common.now() - common.parse_time(current_source)).total_seconds()
+            <= float(common.dec(d["valid_for_seconds"]))
+        ):
+            return reject("Chainlink TWAP did not remain current during the AI review")
         side = "UP" if action == "ENTER_UP" else "DOWN"
         price = market.quote(m, side)
-        snapshot = original["markets"][a]
         estimated_up = common.dec(d["estimated_up_probability"])
         estimated_side = estimated_up if side == "UP" else 1 - estimated_up
         breakeven = common.dec(

@@ -373,6 +373,8 @@ class BookStream:
                     ),
                 }
                 if any(actual[key] != value for key, value in reported.items()):
+                    self.error = "Waiting for synchronized WebSocket book"
+                    self.process.terminate()
                     raise ValueError("Waiting for synchronized WebSocket book")
                 market.apply_book(m, copy.deepcopy(body), side, require_fresh=False)
             stamp = time.time()

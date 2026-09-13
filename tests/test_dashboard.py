@@ -9,6 +9,7 @@ import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend import ai, common, feeds, market, storage
@@ -186,6 +187,16 @@ def run():
         common.dec(row["price"]) != common.dec(".4")
         for row in stream.books["UP"]["bids"]
     )
+    terminated = []
+    stream.process = SimpleNamespace(terminate=lambda: terminated.append(True))
+    stream.reported_best["UP"]["best_bid"] = common.dec(".2")
+    try:
+        stream.snapshot(copy.deepcopy(m))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Desynchronized WebSocket book accepted")
+    assert terminated
     try:
         stream.update(
             {
@@ -369,7 +380,6 @@ def run():
         stream = feeds.Chainlink.__new__(feeds.Chainlink)
         stream.path = Path(folder) / "history.sqlite"
         stream.error = None
-        from types import SimpleNamespace
 
         def window(asset, start):
             with sqlite3.connect(stream.path) as db:
@@ -700,9 +710,18 @@ def run():
             apply(decision())
             assert not s["positions"]
             fresh(16)
+            original = e.payload("market_entry_review")
             e.snapshots["BTC"]["underlying"]["history"] = {"samples": 0}
-            apply(decision())
+            apply(decision(), original)
+            assert "BTC" in s["positions"]  # AI already reviewed the saved history.
+            s["positions"].clear()
+            s["cash"] = "1000"
+            e.snapshots["BTC"]["underlying"]["source_at"] = (
+                clock[0] - timedelta(seconds=31)
+            ).isoformat()
+            apply(decision(), original)
             assert not s["positions"]
+            assert "did not remain current" in s["events"][-1]["reason"]
             fresh(17)
             e.config["daily_loss"] = common.dec("-.01")
             apply(decision())
