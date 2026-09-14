@@ -467,7 +467,7 @@ class Engine:
         breakeven = common.dec(
             snapshot["signals"]["books"][side]["breakeven_win_probability"]
         )
-        if estimated_side <= breakeven:
+        if not reversed_decision and estimated_side <= breakeven:
             return reject("AI probability estimate does not clear fees")
         old_price = common.dec(
             snapshot["yes_ask_dollars" if side == "UP" else "no_ask_dollars"]
@@ -510,7 +510,7 @@ class Engine:
                 f"{side} ask rose ${adverse_contract_drift:.2f}; maximum allowed was ${contract_cap:.2f}"
             )
         live_breakeven = price + market.trade_fee(m, Decimal(1), price)
-        if estimated_side <= live_breakeven:
+        if not reversed_decision and estimated_side <= live_breakeven:
             return reject("Actual contract does not have positive fee-adjusted edge")
         c = self.config
         nav = common.dec(account(s)["equity"])

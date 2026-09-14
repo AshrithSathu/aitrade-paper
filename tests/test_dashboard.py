@@ -801,12 +801,7 @@ def run():
             e.future = Future()
             e.future.set_result(
                 {
-                    "decisions": [
-                        {
-                            **decision("ENTER_UP", ".85"),
-                            "estimated_up_probability": ".05",
-                        }
-                    ],
+                    "decisions": [decision("ENTER_UP", ".85")],
                     "reason": "fixture",
                 }
             )
@@ -823,7 +818,7 @@ def run():
             e.config["max_drawdown_percent"] = common.dec("0")
             original = e.payload("market_entry_review")
             e.apply_decision(
-                {**decision("ENTER_UP", ".85"), "estimated_up_probability": ".05"},
+                decision("ENTER_UP", ".85"),
                 original,
             )
             assert s["positions"]["BTC"]["trade_budget"] == "5"
