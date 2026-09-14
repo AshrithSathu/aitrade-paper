@@ -30,10 +30,10 @@ DEFAULTS = dict(
     market_minutes="15",
     reverse_decisions=False,
     balance="1000",
-    size="5",
+    size="5000",
     nav_allocation_percent="1",
     max_drawdown_percent="10",
-    max_trade="10",
+    max_trade="50",
     interval="0.7",
     jitter="0.25",
 )
