@@ -1,6 +1,6 @@
 # BTC paper trading
 
-Independent 5-minute and 15-minute Polymarket paper accounts. Codex CLI (Terra Medium) reviews each market once; no real orders or wallet connection.
+Independent 5-minute and 15-minute Polymarket paper accounts. Each account selects Codex CLI (Terra Medium) or Jev through Vercel AI Gateway for its single market review; no real orders or wallet connection.
 
 ## Repository layout
 
@@ -11,7 +11,8 @@ Independent 5-minute and 15-minute Polymarket paper accounts. Codex CLI (Terra M
 | `backend/feeds.py` | Public market discovery and live feed lifecycle |
 | `backend/market.py` | Market/book validation, fees and price signals |
 | `backend/storage.py` | PostgreSQL price history and review retention |
-| `backend/ai.py` | Structured AI briefing, Codex subprocess, response validation |
+| `backend/ai.py` | Structured AI briefing, cancellable review subprocesses, response validation |
+| `backend/jev.py` | Jev Gateway evaluation and paper-plan translation |
 | `backend/common.py` | Shared paths, settings, value helpers and atomic JSON writes |
 | `web/` | Dashboard HTML, CSS and JavaScript; no build step |
 | `feeds/chainlink.mjs` | Native Node WebSocket relay for TWAP and order books |
@@ -25,6 +26,7 @@ Dependencies flow from the dashboard to the engine, then to AI, feeds, market va
 ## Development
 
 Requires Python 3.11+, psycopg2, PostgreSQL, Node 22+ and Codex CLI 0.154.0 or newer. Set `DATABASE_URL` to your development database and sign in with `codex login`. Docker includes the Python database driver and pinned CLI.
+Jev mode additionally needs `AI_GATEWAY_API_KEY` on the backend. It uses Vercel's `/v1/evaluate` endpoint; the dashboard never receives the key. Switch models per account only while stopped and without an open or settling position.
 
 ```sh
 bun run start

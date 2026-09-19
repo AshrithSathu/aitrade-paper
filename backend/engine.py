@@ -242,6 +242,7 @@ class Engine:
             raise ValueError("Unknown review trigger")
         self.last_codex = {
             "status": "running",
+            "model": self.config["ai_model"],
             "payload": self.payload(trigger, assets),
             "response": None,
         }
@@ -253,7 +254,9 @@ class Engine:
         common.atomic_json(self.data_dir / "codex-latest.json", self.last_codex)
         self.cancel_review = threading.Event()
         self.future = self.pool.submit(
-            ai.codex_decision, self.last_codex["payload"], self.cancel_review
+            ai.jev_decision if self.config["ai_model"] == "jev" else ai.codex_decision,
+            self.last_codex["payload"],
+            self.cancel_review,
         )
         return True
 
@@ -272,7 +275,12 @@ class Engine:
                         "ENTER_UP": "ENTER_DOWN",
                         "ENTER_DOWN": "ENTER_UP",
                     }.get(decision["action"], decision["action"])
-            self.emit("codex", reason=response["reason"], decisions=decisions)
+            self.emit(
+                "codex",
+                model=self.last_codex.get("model", "codex"),
+                reason=response["reason"],
+                decisions=decisions,
+            )
             if original["execution_allowed"]:
                 for d in response["decisions"]:
                     snapshot = original["markets"][d["asset"]]

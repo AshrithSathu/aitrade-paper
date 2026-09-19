@@ -9,7 +9,7 @@ export default defineRailway(() => {
     replicas: { "us-west2": 1 },
     deploy: { limitOverride: { containers: { cpu: 4, memoryBytes: 8000000000 } } },
     volumeMounts: { "/app/data": paperVolume },
-    env: { DATABASE_URL: preserve(), PUBLIC_ORIGIN: preserve(), TUNNEL_TOKEN: preserve() },
+    env: { DATABASE_URL: preserve(), PUBLIC_ORIGIN: preserve(), TUNNEL_TOKEN: preserve(), AI_GATEWAY_API_KEY: preserve() },
   });
 
   return project("aitrade-paper", {

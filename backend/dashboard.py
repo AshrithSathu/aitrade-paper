@@ -112,6 +112,7 @@ def export_csv(events):
     }
     columns = [
         "decision_at",
+        "ai_model",
         "ticker",
         "market_url",
         "ai_action",
@@ -172,6 +173,7 @@ def export_csv(events):
             writer.writerow(
                 {
                     "decision_at": event.get("at"),
+                    "ai_model": event.get("model", "codex"),
                     "ticker": ticker,
                     "market_url": f"https://polymarket.com/event/{ticker}"
                     if ticker
@@ -272,6 +274,7 @@ def publish(engine, view):
         codex=copy.deepcopy(
             {
                 "status": review.get("status"),
+                "model": review.get("model", "codex"),
                 "response": review.get("response"),
                 "payload": {
                     "at": payload.get("at"),
@@ -291,6 +294,7 @@ def status(minutes):
     data = copy.deepcopy(views[minutes])
     data.update(
         settings=settings_by[minutes],
+        jev_ready=bool(os.environ.get("AI_GATEWAY_API_KEY")),
         paused=engine.state["paused"],
         waiting_for=engine.readiness_error("BTC", history=True),
     )
@@ -537,6 +541,12 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/api/pause":
                     engine.pause()
                 elif path == "/api/start":
+                    if engine.config["ai_model"] == "jev" and not os.environ.get(
+                        "AI_GATEWAY_API_KEY"
+                    ):
+                        raise ValueError(
+                            "Jev needs AI_GATEWAY_API_KEY on Railway before starting"
+                        )
                     if view["error"]:
                         raise ValueError("Resolve the worker error before starting")
                     if s["halted"]:

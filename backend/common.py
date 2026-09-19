@@ -29,6 +29,7 @@ DEFAULTS = dict(
     assets=["BTC"],
     market_minutes="15",
     reverse_decisions=False,
+    ai_model="codex",
     balance="1000",
     size="5000",
     nav_allocation_percent="1",
@@ -73,11 +74,13 @@ def validate(values):
         raise ValueError("Only BTC is enabled")
     if not isinstance(values["reverse_decisions"], bool):
         raise ValueError("Reverse AI direction must be on or off")
+    if values["ai_model"] not in ("codex", "jev"):
+        raise ValueError("Choose Codex or Jev")
     try:
         n = {
             k: dec(v)
             for k, v in values.items()
-            if k not in ("assets", "reverse_decisions")
+            if k not in ("assets", "reverse_decisions", "ai_model")
         }
     except (InvalidOperation, TypeError):
         raise ValueError("Enter valid decimal numbers") from None

@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -316,6 +317,53 @@ def codex_decision(payload, cancel):
         value = json.loads(output.read_text())
         validate_decisions(value)
         return value
+
+
+def jev_decision(payload, cancel):
+    key = os.environ.get("AI_GATEWAY_API_KEY")
+    if not key:
+        raise RuntimeError("Jev needs AI_GATEWAY_API_KEY on the trading service")
+    if cancel.is_set():
+        raise RuntimeError("Review cancelled: trading paused")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "backend.jev"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=common.ROOT,
+        env={"AI_GATEWAY_API_KEY": key},
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 25
+    try:
+        first = True
+        while True:
+            if cancel.is_set():
+                raise RuntimeError("Review cancelled: trading paused")
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Jev review timed out")
+            try:
+                output, stderr = process.communicate(
+                    input=json.dumps(payload, default=str) if first else None,
+                    timeout=0.1,
+                )
+                break
+            except subprocess.TimeoutExpired:
+                first = False
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    if cancel.is_set():
+        raise RuntimeError("Review cancelled: trading paused")
+    if process.returncode:
+        raise RuntimeError("Jev review failed: " + stderr[-300:])
+    value = json.loads(output)
+    validate_decisions(value)
+    return value
 
 
 def validate_decisions(value):

@@ -2,7 +2,7 @@
 
 The prompt is a structured decision brief, not a provider response dump. Prices used for execution retain their original precision; historical table prices are rounded to USD cents. JSON field names and table columns identify units. Summaries do not guarantee a correct trade.
 
-Each decision must include Terra's estimated Up probability. Down is its complement. Terra compares both estimates with the supplied fee-adjusted breakeven probabilities and enters the positive-edge side when one exists. A modest estimated edge can use a small paper position; WAIT is reserved for two non-positive edges, genuinely balanced or contradictory evidence, or missing required live data.
+Codex mode returns Terra's estimated Up probability, direction, written reason and conditional price/drift plan. Jev mode sends the same structured snapshot to Vercel AI Gateway for a typed Up-outcome estimate and an independent Up/Down/Wait choice. The backend rejects a Jev entry if its selected side does not clear the snapshot's fee-adjusted breakeven. Jev provides no written rationale or numeric plan; the backend records a numeric explanation and derives short-lived price/drift bounds from the snapshot. Jev's probability is uncalibrated for this account until compared with settled outcomes.
 
 | Collected information | Sent to AI | Reason |
 | --- | --- | --- |

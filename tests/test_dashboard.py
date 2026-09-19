@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend import ai, common, feeds, market, storage
+from backend import ai, common, feeds, jev, market, storage
 from backend import engine as trading
 
 
@@ -55,6 +56,71 @@ class FakeFeed:
 def run():
     from backend import dashboard
 
+    jev_payload = {
+        "review_assets": ["BTC"],
+        "markets": {
+            "BTC": {
+                "market_minutes": 5,
+                "ticker": "btc-updown-5m-1789263000",
+                "yes_ask_dollars": ".45",
+                "no_ask_dollars": ".57",
+                "signals": {
+                    "books": {
+                        "UP": {"breakeven_win_probability": ".47"},
+                        "DOWN": {"breakeven_win_probability": ".59"},
+                    },
+                    "opening_distance_context": {"one_minute_rms_move_usd": 40},
+                },
+            }
+        },
+    }
+
+    class JevResponse:
+        def __init__(self, probability, choice):
+            self.value = {
+                "answers": {
+                    "up": {"type": "boolean", "probability": probability},
+                    "entry": {"type": "choice", "choice": choice},
+                }
+            }
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def read(self):
+            return json.dumps(self.value).encode()
+
+    def fake_jev_request(request, timeout):
+        assert timeout == 20
+        assert request.full_url == "https://ai-gateway.vercel.sh/v1/evaluate"
+        sent = json.loads(request.data)
+        assert sent["model"] == "typesafe-ai/jev"
+        assert sent["state"] == jev_payload
+        assert sent["providerOptions"]["gateway"]["zeroDataRetention"] is True
+        return JevResponse(0.60, "ENTER_UP")
+
+    with (
+        patch.dict("os.environ", {"AI_GATEWAY_API_KEY": "test-key"}),
+        patch("backend.jev.urllib.request.urlopen", side_effect=fake_jev_request),
+    ):
+        planned = jev.decide(jev_payload)
+        ai.validate_decisions(planned)
+        assert planned["decisions"][0]["action"] == "ENTER_UP"
+        assert planned["decisions"][0]["max_underlying_drift_usd"] == "4"
+    with (
+        patch.dict("os.environ", {"AI_GATEWAY_API_KEY": "test-key"}),
+        patch(
+            "backend.jev.urllib.request.urlopen",
+            return_value=JevResponse(0.60, "ENTER_DOWN"),
+        ),
+    ):
+        skipped = jev.decide(jev_payload)
+        ai.validate_decisions(skipped)
+        assert skipped["decisions"][0]["action"] == "WAIT"
+
     assert "https://paper.example.com" in dashboard.allowed_origins(
         "https://paper.example.com"
     )
@@ -70,7 +136,6 @@ def run():
             pass
         else:
             raise AssertionError("Unsafe deployment origin accepted")
-    import json
     import sqlite3
     import time
 
@@ -855,6 +920,29 @@ def run():
             e.complete_review()
             assert not e.request_review("manual_account_review")
             assert not e.request_review("market_entry_review")
+        launched.clear()
+        e.config["ai_model"] = "jev"
+
+        def fake_jev(*args, **kwargs):
+            assert args[0] == [sys.executable, "-m", "backend.jev"]
+            assert kwargs["env"] == {"AI_GATEWAY_API_KEY": "test-key"}
+            process = popen(
+                [sys.executable, "-c", "import time; time.sleep(60)"], **kwargs
+            )
+            processes.append(process)
+            launched.set()
+            return process
+
+        s["paused"] = False
+        with (
+            patch.dict("os.environ", {"AI_GATEWAY_API_KEY": "test-key"}),
+            patch.object(subprocess, "Popen", side_effect=fake_jev),
+        ):
+            assert e.request_review("manual_account_review")
+            assert launched.wait(3)
+            e.pause()
+            assert processes[-1].poll() is not None and e.future.done()
+            e.complete_review()
         e.start_run(12, 1)
         assert s["profit_target_percent"] == "1"
         s["realized_pnl"] = str(
@@ -879,6 +967,7 @@ def run():
             dict(max_drawdown_percent="-1"),
             dict(max_drawdown_percent="101"),
             dict(reverse_decisions="yes"),
+            dict(ai_model="unknown"),
             dict(codex_interval="60"),
         ]:
             try:
@@ -926,12 +1015,15 @@ def run():
                 open_time=(t - timedelta(seconds=60)).isoformat(),
             )
         }
+        five.config["ai_model"] = "jev"
         with (
             patch.object(common, "now", return_value=t),
             patch.object(five, "ready", return_value=True),
-            patch.object(five.pool, "submit", return_value=Future()),
+            patch.object(five.pool, "submit", return_value=Future()) as submit,
         ):
             assert five.request_review("market_entry_review")
+            assert submit.call_args.args[0] is ai.jev_decision
+            assert five.last_codex["model"] == "jev"
             assert not fifteen.state["reviewed_markets"] and fifteen.future is None
             assert (Path(folder) / "5m" / "codex-latest.json").exists()
             assert not (Path(folder) / "15m" / "codex-latest.json").exists()
@@ -942,7 +1034,6 @@ def run():
             engine.pool.shutdown()
             engine.feed_pool.shutdown()
     # Exercise real HTTP routes: each account starts/stops independently without launching AI.
-    import json
     import urllib.request
     from http.server import ThreadingHTTPServer
 
@@ -1020,6 +1111,7 @@ def run():
                         assert b'id="exporthistory"' in content
                         assert b'id="clear5"' in content
                         assert b'name="reverse_decisions"' in content
+                        assert b'name="ai_model"' in content
                     if route == "/dashboard.js":
                         assert b'$("pause" + mode).disabled' not in content
                         assert b'$("pause" + m).disabled' not in content
@@ -1116,7 +1208,7 @@ def run():
                 assert response.headers["Content-Disposition"] == (
                     'attachment; filename="btc-5-minute-history.csv"'
                 )
-                assert "decision_at,ticker,market_url" in exported
+                assert "decision_at,ai_model,ticker,market_url" in exported
                 assert "market-0,https://polymarket.com/event/market-0" in exported
             dashboard.login.update(
                 checked_at=dashboard.time.monotonic(), authenticated=True
@@ -1178,6 +1270,24 @@ def run():
                     ]
                     == balance
                 )
+            post(
+                "settings",
+                "5",
+                dict(
+                    common.DEFAULTS, market_minutes="5", balance="1200", ai_model="jev"
+                ),
+            )
+            assert dashboard.engines["5"].config["ai_model"] == "jev"
+            assert dashboard.engines["15"].config["ai_model"] == "codex"
+            with patch.dict("os.environ", {"AI_GATEWAY_API_KEY": ""}):
+                try:
+                    post("start", "5")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 400
+                    assert b"AI_GATEWAY_API_KEY" in exc.read()
+                else:
+                    raise AssertionError("Jev run started without Gateway key")
+            assert dashboard.engines["5"].state["paused"]
             post("reset", "5", {"confirm": "CLEAR"})
             assert dashboard.engines["5"].state["events"] == []
             assert dashboard.engines["5"].state["cash"] == "1200"

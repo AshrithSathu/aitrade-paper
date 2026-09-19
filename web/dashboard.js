@@ -90,7 +90,9 @@ async function action(path, body = {}, minutes = selectedMinutes) {
       loadedModes.delete(minutes);
       loadHistory(minutes);
     }
-    $("saved").textContent = path === "settings" ? "Limits saved." : "Done.";
+    if (path === "settings") latest.accounts[minutes].settings = body;
+    $("saved").textContent = path === "settings" ? "Settings saved." : "Done.";
+    return true;
   } catch (e) {
     $(path === "settings" ? "saved" + minutes : "saved").textContent =
       e.message;
@@ -98,6 +100,7 @@ async function action(path, body = {}, minutes = selectedMinutes) {
     actionBusy = false;
     tabsDisabled(false);
   }
+  return false;
 }
 for (const m of ["5", "15"]) {
   $("start" + m).onclick = () => {
@@ -127,6 +130,21 @@ for (const m of ["5", "15"]) {
 $("codexlogin").onclick = () => action("codex/login");
 for (const minutes of ["5", "15"]) {
   const form = $("settings" + minutes);
+  for (const input of form.querySelectorAll('input[name="ai_model"]'))
+    input.onchange = async () => {
+      if (!latest || actionBusy) return;
+      const saved = latest.accounts[minutes].settings;
+      if (
+        !(await action(
+          "settings",
+          { ...saved, ai_model: input.value },
+          minutes,
+        ))
+      )
+        form.querySelector(
+          `input[name="ai_model"][value="${saved.ai_model}"]`,
+        ).checked = true;
+    };
   form.onsubmit = (e) => {
     e.preventDefault();
     if (!latest) return;
@@ -188,6 +206,16 @@ function render(update) {
       form.elements.reverse_decisions.checked = limits.reverse_decisions;
       loadedSettings.add(minutes);
     }
+    if (!actionBusy)
+      form.querySelector(
+        `input[name="ai_model"][value="${limits.ai_model}"]`,
+      ).checked = true;
+    for (const input of form.querySelectorAll('input[name="ai_model"]'))
+      input.disabled =
+        !account.paused ||
+        !!Object.keys(account.state.positions).length ||
+        !!Object.keys(account.state.pending).length ||
+        account.codex?.status === "running";
     const used = Number(account.account.drawdown_percent),
       limit = Number(limits.max_drawdown_percent);
     $("lossbudget" + minutes).textContent = limit
@@ -265,6 +293,10 @@ function render(update) {
   const review = d.codex;
   const reviewTicker = review?.payload?.markets?.BTC?.ticker;
   const currentReview = reviewTicker && reviewTicker === m?.ticker;
+  const model =
+    currentReview && review?.model ? review.model : settings.ai_model;
+  $("reviewmodel").textContent =
+    model === "jev" ? "Jev · typed evaluation" : "Codex · Terra Medium";
   $("reviewstatus").textContent =
     currentReview && review?.status === "running"
       ? "AI is reviewing this market…"
@@ -285,11 +317,17 @@ function render(update) {
   if (historyVersions[selectedMinutes] !== d.event_version)
     loadHistory(selectedMinutes);
   const login = update.login;
-  $("loginstatus").textContent = login.status;
-  $("codexlogin").hidden = login.authenticated;
+  $("loginstatus").textContent =
+    settings.ai_model === "jev"
+      ? d.jev_ready
+        ? "Jev Gateway key configured"
+        : "Jev needs an AI Gateway key on Railway before starting."
+      : login.status;
+  $("codexlogin").hidden = settings.ai_model === "jev" || login.authenticated;
   $("codexlogin").disabled =
     login.running || Object.values(update.accounts).some((a) => !a.paused);
-  $("loginoutput").textContent = login.authenticated ? "" : login.output;
+  $("loginoutput").textContent =
+    settings.ai_model === "jev" || login.authenticated ? "" : login.output;
 }
 
 function renderHistory(minutes) {
@@ -322,7 +360,13 @@ function renderHistory(minutes) {
     history.results.map((result) => [result.ticker, result]),
   );
   const decisions = history.decisions
-    .flatMap((e) => e.decisions.map((decision) => ({ ...decision, at: e.at })))
+    .flatMap((e) =>
+      e.decisions.map((decision) => ({
+        ...decision,
+        model: e.model || "codex",
+        at: e.at,
+      })),
+    )
     .slice(0, 20);
   $("decisionhistory").innerHTML = decisions.length
     ? decisions
@@ -351,7 +395,7 @@ function renderHistory(minutes) {
               : "",
             rejection = history.rejections[decision.ticker];
           const outcome = outcomes[decision.ticker] || "Outcome pending";
-          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="result-pills">${stake}${pill}</span></div><div class="sub">${esc(new Date(decision.at).toLocaleString())} · ${esc(outcome)} · ${marketLink(decision.ticker)}</div>${rejection ? `<div class="bad">Not filled: ${esc(rejection)}</div>` : ""}<div>${esc(decision.reason)}</div></div>`;
+          return `<div class="event"><div class="row"><strong>${esc(action)}</strong><span class="result-pills">${stake}${pill}</span></div><div class="sub">${esc(decision.model === "jev" ? "Jev" : "Codex")} · ${esc(new Date(decision.at).toLocaleString())} · ${esc(outcome)} · ${marketLink(decision.ticker)}</div>${rejection ? `<div class="bad">Not filled: ${esc(rejection)}</div>` : ""}<div>${esc(decision.reason)}</div></div>`;
         })
         .join("")
     : "No decisions yet.";
@@ -443,7 +487,7 @@ setInterval(() => {
 }, 15000);
 if ("serviceWorker" in navigator)
   window.addEventListener("load", () =>
-    navigator.serviceWorker.register("/service-worker.js?v=6", {
+    navigator.serviceWorker.register("/service-worker.js?v=7", {
       updateViaCache: "none",
     }),
   );

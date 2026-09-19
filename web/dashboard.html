@@ -13,7 +13,7 @@
   />
   <link rel="manifest" href="/manifest.webmanifest?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
-  <link rel="stylesheet" href="/dashboard.css?v=5" />
+  <link rel="stylesheet" href="/dashboard.css?v=7" />
   <header>
     <div>
       <h1>BTC trading</h1>
@@ -148,7 +148,7 @@
         <div class="panel">
           <div class="row">
             <h2>AI decision</h2>
-            <span class="sub">Terra · Medium</span>
+            <span id="reviewmodel" class="sub">Codex · Terra Medium</span>
           </div>
           <p id="reviewstatus" role="status">No decision yet.</p>
           <p id="reviewtime" class="sub"></p>
@@ -219,6 +219,22 @@
         <div id="limits5">
           <form class="panel" id="settings5">
             <h2>5-minute limits</h2>
+            <fieldset class="model-switch">
+              <legend>Decision model</legend>
+              <label
+                ><input
+                  type="radio"
+                  name="ai_model"
+                  value="codex"
+                  checked
+                /><span>Codex</span></label
+              >
+              <label
+                ><input type="radio" name="ai_model" value="jev" /><span
+                  >Jev</span
+                ></label
+              >
+            </fieldset>
             <div class="fields">
               <label
                 >Starting balance ($)<input
@@ -288,6 +304,22 @@
         <div id="limits15" hidden>
           <form class="panel" id="settings15">
             <h2>15-minute limits</h2>
+            <fieldset class="model-switch">
+              <legend>Decision model</legend>
+              <label
+                ><input
+                  type="radio"
+                  name="ai_model"
+                  value="codex"
+                  checked
+                /><span>Codex</span></label
+              >
+              <label
+                ><input type="radio" name="ai_model" value="jev" /><span
+                  >Jev</span
+                ></label
+              >
+            </fieldset>
             <div class="fields">
               <label
                 >Starting balance ($)<input
@@ -357,5 +389,5 @@
       </aside>
     </div>
   </main>
-  <script src="/dashboard.js?v=6"></script>
+  <script src="/dashboard.js?v=7"></script>
 </html>

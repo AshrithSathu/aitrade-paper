@@ -10,6 +10,7 @@ Existing app variables:
 - `DATABASE_URL`: Railway reference to the PostgreSQL service.
 - `PUBLIC_ORIGIN`: exact HTTPS dashboard origin.
 - `TUNNEL_TOKEN`: Cloudflare Tunnel credential.
+- `AI_GATEWAY_API_KEY`: Vercel AI Gateway key, required only when an account uses Jev. Set it as a Railway secret; never enter it in the dashboard or commit it.
 
 The persistent volume remains mounted at `/app/data`. Source-code moves must never move account files or Codex authentication. No secret belongs in Git or the image.
 
